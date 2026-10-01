@@ -189,7 +189,8 @@ def decode_pair(probs, known_idx, ids):
 class RoleTagger(nn.Module):
     def __init__(self, n_roles, tok):
         super().__init__()
-        self.enc = AutoModel.from_pretrained(MODEL_NAME, revision=MODEL_REVISION)
+        self.enc = AutoModel.from_pretrained(MODEL_NAME, revision=MODEL_REVISION,
+                                         torch_dtype=torch.float32)   # fp32 master weights (newer transformers default to the checkpoint dtype, fp16, which NaNs)
         self.enc.resize_token_embeddings(len(tok))
         h = self.enc.config.hidden_size
         self.ent_id = tok.convert_tokens_to_ids("[ENT]")
