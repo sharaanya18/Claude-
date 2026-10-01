@@ -53,7 +53,7 @@ from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warm
 
 # ---- fixed plan (constants; time is never used in a condition) -------------------------------------
 MODEL_NAME = "microsoft/deberta-v3-large"
-MODEL_REVISION = "main"         # DEV NOTE: pin to an exact commit sha before the final submission
+MODEL_REVISION = "64a8c8eab3e352a784c658aef62be1662607476f"   # microsoft/deberta-v3-large, pinned commit
 DEVICE = "cuda"
 AMP = "bf16"                    # "bf16" on the A10G; dev runs on Kaggle T4/P100 (no bf16) override it to "off" (fp32)
 SEED = 42

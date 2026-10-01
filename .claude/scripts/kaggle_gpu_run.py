@@ -6,7 +6,8 @@
                                                                        push <script> (solution.py or dev_run.py) as a GPU kernel and wait.
                                                                        --dataset points at an EXISTING Kaggle dataset (e.g. one you uploaded);
                                                                        the kernel finds train.csv anywhere under /kaggle/input
-  python3 kaggle_gpu_run.py fetch  <challenge_dir>                     download the kernel's /kaggle/working files into <challenge_dir>/kaggle_out/
+  (run also takes --name=<kernel slug> and repeated --set=KEY=VALUE overrides of module-level constants of the embedded solution.py)
+  python3 kaggle_gpu_run.py fetch  <challenge_dir> [--name=<kernel slug>]                     download the kernel's /kaggle/working files into <challenge_dir>/kaggle_out/
   python3 kaggle_gpu_run.py dry    <challenge_dir> <script>            write the metadata files only (no network)
 
 Notes: (1) Kaggle GPUs (T4/P100) are not the platform's A10G: use them for experiments and CV; re-profile runtime and re-check determinism on the
@@ -41,11 +42,11 @@ def slug(ch):
     return "".join(c if c.isalnum() else "-" for c in Path(ch).resolve().name.lower()).strip("-")[:40]
 
 
-def write_meta(ch, script, args, user, dataset=None):
+def write_meta(ch, script, args, user, dataset=None, sets=(), name=None):
     """dataset: 'owner/slug' of an EXISTING Kaggle dataset (e.g. one the user uploaded); default is the private one created by `data`."""
     ch = Path(ch).resolve()
     ds_full = dataset or f"{user}/{slug(ch)}-data"
-    ds, kn = ds_full.split("/")[-1], f"{slug(ch)}-run"
+    ds, kn = ds_full.split("/")[-1], (name or f"{slug(ch)}-run")
     kdir = ch / "kaggle_kernel"
     shutil.rmtree(kdir, ignore_errors=True)
     kdir.mkdir()
@@ -55,6 +56,12 @@ def write_meta(ch, script, args, user, dataset=None):
     pre = "import os, shutil, subprocess, sys, glob\n"
     for name in embedded:
         pre += f"open({name!r}, 'w', encoding='utf-8').write({(ch / name).read_text(encoding='utf-8')!r})\n"
+    if sets:   # dev-only constant overrides applied to the embedded solution.py (module-level `KEY = value` lines)
+        pre += "import re\nsrc = open('solution.py', encoding='utf-8').read()\n"
+        for kv in sets:
+            k, v = kv.split("=", 1)
+            pre += f"src, n = re.subn(r'(?m)^{k} = .*$', {k + ' = ' + v!r}, src); assert n == 1, {k!r}\n"
+        pre += "open('solution.py', 'w', encoding='utf-8').write(src)\n"
     find = ('hits = sorted(glob.glob("/kaggle/input/**/train.csv", recursive=True))\n'
             'assert hits, "train.csv not found under /kaggle/input"\nPUB = os.path.dirname(hits[0])\nprint("data dir:", PUB)\n')
     if script == "solution.py":
@@ -81,9 +88,12 @@ def main(argv):
     cmd, ch = argv[1], Path(argv[2]).resolve()
     rest = argv[3:]
     dataset = next((a.split("=", 1)[1] for a in rest if a.startswith("--dataset=")), None)
-    rest = [a for a in rest if not a.startswith("--dataset=")]
+    name = next((a.split("=", 1)[1] for a in rest if a.startswith("--name=")), None)
+    sets = [a.split("=", 1)[1] if a.startswith("--set=") else None for a in rest]
+    sets = [x for x in sets if x]
+    rest = [a for a in rest if not a.startswith(("--dataset=", "--name=", "--set="))]
     if cmd == "dry":
-        kdir, kid = write_meta(ch, rest[0], rest[1:], "USER", dataset)
+        kdir, kid = write_meta(ch, rest[0], rest[1:], "USER", dataset, sets, name)
         print("wrote", kdir, "kernel id", kid)
         return 0
     user = username()
@@ -98,7 +108,7 @@ def main(argv):
         print(r.stdout + r.stderr)
         return r.returncode
     if cmd == "run":
-        kdir, kid = write_meta(ch, rest[0], rest[1:], user, dataset)
+        kdir, kid = write_meta(ch, rest[0], rest[1:], user, dataset, sets, name)
         r = sh(["kaggle", "kernels", "push", "-p", str(kdir)])
         print(r.stdout + r.stderr)
         if r.returncode:
@@ -111,7 +121,7 @@ def main(argv):
             time.sleep(60)
         return 0 if "complete" in st.lower() else 1
     if cmd == "fetch":
-        kid = f"{user}/{slug(ch)}-run"
+        kid = f"{user}/{next((a.split('=', 1)[1] for a in argv[3:] if a.startswith('--name=')), slug(ch) + '-run')}"
         out = ch / "kaggle_out"
         out.mkdir(exist_ok=True)
         r = sh(["kaggle", "kernels", "output", kid, "-p", str(out)])
