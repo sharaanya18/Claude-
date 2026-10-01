@@ -2,7 +2,10 @@
 """Run a script on a Kaggle GPU notebook and fetch its outputs (needs the `kaggle` CLI >= 1.8 and KAGGLE_API_TOKEN in the environment).
 
   python3 kaggle_gpu_run.py data   <challenge_dir>                     upload dataset/public as a PRIVATE Kaggle dataset
-  python3 kaggle_gpu_run.py run    <challenge_dir> <script> [ARGS...]  push <script> (solution.py or dev_run.py) as a GPU kernel and wait
+  python3 kaggle_gpu_run.py run    <challenge_dir> <script> [--dataset=owner/slug] [ARGS...]
+                                                                       push <script> (solution.py or dev_run.py) as a GPU kernel and wait.
+                                                                       --dataset points at an EXISTING Kaggle dataset (e.g. one you uploaded);
+                                                                       the kernel finds train.csv anywhere under /kaggle/input
   python3 kaggle_gpu_run.py fetch  <challenge_dir>                     download the kernel's /kaggle/working files into <challenge_dir>/kaggle_out/
   python3 kaggle_gpu_run.py dry    <challenge_dir> <script>            write the metadata files only (no network)
 
@@ -38,9 +41,11 @@ def slug(ch):
     return "".join(c if c.isalnum() else "-" for c in Path(ch).resolve().name.lower()).strip("-")[:40]
 
 
-def write_meta(ch, script, args, user):
+def write_meta(ch, script, args, user, dataset=None):
+    """dataset: 'owner/slug' of an EXISTING Kaggle dataset (e.g. one the user uploaded); default is the private one created by `data`."""
     ch = Path(ch).resolve()
-    ds, kn = f"{slug(ch)}-data", f"{slug(ch)}-run"
+    ds_full = dataset or f"{user}/{slug(ch)}-data"
+    ds, kn = ds_full.split("/")[-1], f"{slug(ch)}-run"
     kdir = ch / "kaggle_kernel"
     shutil.rmtree(kdir, ignore_errors=True)
     kdir.mkdir()
@@ -50,20 +55,23 @@ def write_meta(ch, script, args, user):
             shutil.copy(ch / extra, kdir / extra)
     wrapper = kdir / "main.py"
     argstr = " ".join(args)
+    # locate the folder holding train.csv anywhere under /kaggle/input (the mount layout and zip nesting differ between uploads)
+    find = ('import glob\nhits = sorted(glob.glob("/kaggle/input/**/train.csv", recursive=True))\n'
+            'assert hits, "train.csv not found under /kaggle/input"\nPUB = os.path.dirname(hits[0])\nprint("data dir:", PUB)\n')
     if script == "solution.py":
-        cmd = f'subprocess.check_call([sys.executable, "solution.py", "/kaggle/input/{ds}/public", "/kaggle/working/submission.csv"])'
+        cmd = 'subprocess.check_call([sys.executable, "solution.py", PUB, "/kaggle/working/submission.csv"])'
     else:
-        cmd = (f'os.makedirs("dataset", exist_ok=True); '
-               f'(not os.path.exists("dataset/public")) and shutil.copytree("/kaggle/input/{ds}/public", "dataset/public"); '
+        cmd = ('os.makedirs("dataset", exist_ok=True)\n'
+               'shutil.copytree(PUB, "dataset/public", dirs_exist_ok=True)\n'
                f'subprocess.check_call([sys.executable, "{script}"] + {args!r})')
-    wrapper.write_text("import os, shutil, subprocess, sys\n" + cmd + "\n"
+    wrapper.write_text("import os, shutil, subprocess, sys\n" + find + cmd + "\n"
                        "for d in ('reports', 'working'):\n"
                        "    if os.path.isdir(d):\n"
                        "        shutil.copytree(d, '/kaggle/working/' + d, dirs_exist_ok=True)\n")
     (kdir / "kernel-metadata.json").write_text(json.dumps({
         "id": f"{user}/{kn}", "title": kn, "code_file": "main.py", "language": "python", "kernel_type": "script",
         "is_private": True, "enable_gpu": True, "enable_internet": True,
-        "dataset_sources": [f"{user}/{ds}"], "competition_sources": [], "kernel_sources": []}, indent=2))
+        "dataset_sources": [ds_full], "competition_sources": [], "kernel_sources": []}, indent=2))
     return kdir, f"{user}/{kn}"
 
 
@@ -72,8 +80,11 @@ def main(argv):
         print(__doc__)
         return 64
     cmd, ch = argv[1], Path(argv[2]).resolve()
+    rest = argv[3:]
+    dataset = next((a.split("=", 1)[1] for a in rest if a.startswith("--dataset=")), None)
+    rest = [a for a in rest if not a.startswith("--dataset=")]
     if cmd == "dry":
-        kdir, kid = write_meta(ch, argv[3], argv[4:], "USER")
+        kdir, kid = write_meta(ch, rest[0], rest[1:], "USER", dataset)
         print("wrote", kdir, "kernel id", kid)
         return 0
     user = username()
@@ -88,7 +99,7 @@ def main(argv):
         print(r.stdout + r.stderr)
         return r.returncode
     if cmd == "run":
-        kdir, kid = write_meta(ch, argv[3], argv[4:], user)
+        kdir, kid = write_meta(ch, rest[0], rest[1:], user, dataset)
         r = sh(["kaggle", "kernels", "push", "-p", str(kdir)])
         print(r.stdout + r.stderr)
         if r.returncode:

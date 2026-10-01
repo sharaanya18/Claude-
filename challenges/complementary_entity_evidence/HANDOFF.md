@@ -7,7 +7,7 @@ Branch: `ccr-88f20c83-nwrhm0`. Read `/home/user/Claude-/CLAUDE.md` (rules, §1A 
 - `metric.py` + `tests_metric.py` (27 tests pass): exact metric, expected-union decode (closed form), MC decode, gold-oracle check.
 - `solution.py` (draft): DeBERTa-v3-large role tagger, masked BCE over 73 roles, seeds as extra labelled sentences, labels merged across a sentence's appearances, cohort-grouped 5-fold CV chooses epochs + temperature, refit on 100% (2 seeds), expected-union pair decode, validated write. Runs end to end on the real data on CPU with a tiny model. MODEL_REVISION is still "main": pin a commit sha before submitting.
 - `dev_run.py`: dev harness (not part of the submission): `python3 dev_run.py EXP KEY=VAL ...` runs the CV with patched constants and saves OOF logits to `reports/oof/EXP.npz`.
-- Dataset is NOT in git. The user's zip must be attached again in the new session: unzip into `dataset/public/{train.csv,train_targets.csv,test.csv,sample_submission.csv}`.
+- The user uploaded the dataset to Kaggle as a dataset named `nlpdata` (owner = the user's Kaggle username; confirm with `kaggle datasets list --mine`). Use `--dataset=<owner>/nlpdata` with `kaggle_gpu_run.py run` instead of the `data` step. Locally the dataset is NOT in git. The user's zip must be attached again in the new session: unzip into `dataset/public/{train.csv,train_targets.csv,test.csv,sample_submission.csv}`.
 - Key data facts: random pair 0.513 (type priors ≈ random); `oracle_rank` larger = first; 44% of candidates have no new role; 0 label contradictions across repeated sentences; 256 cohorts; sentences ≈ 11 words.
 - CPU dev CV (electra-small, 5 folds, 8 epochs, lr 2e-4) was running when this session ended; result not recorded.
 
