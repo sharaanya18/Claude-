@@ -91,6 +91,7 @@ Pre-submission runs four checks: **CSV Score Validation**, **Prompt Compliance**
 
 ## 4. Standard workflow for every new challenge
 
+0. **Run the `eris-strategist` subagent first** (`.claude/agents/eris-strategist.md`) with the description and dataset path. It writes `./plan/eris_plan.md`; implement from that plan and keep it updated as experiments confirm or refute it.
 1. **Read the description twice.** Extract: task type, metric (and direction), submission columns/order/dtypes, row count, ID column, runtime/model-size limits, allowed/forbidden methods, "from scratch" or "fine-tuning" labelling.
 2. **Classify the domain** → pick the playbook in §6 and the compliance regime in §2/§7.
 3. **EDA (quick, in a scratch notebook, not in the final script):** shapes, dtypes, target distribution/imbalance, missingness, duplicates, ID/ordering leakage, train-vs-test distribution shift (adversarial thinking only; do not adapt to test), group/time structure, text lengths/image sizes/sequence lengths.
