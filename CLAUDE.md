@@ -6,7 +6,7 @@ Priority order when anything conflicts:
 1. **Challenge-specific description** (real restrictions override this file, see §2.4)
 2. **Compliance** (rules in §2–§3) — a rejected solution is worth zero, however high its score
 3. **Validity** (script runs, `submission.csv` exactly right, deterministic)
-4. **Score on the private LB** (generalization, not public-LB chasing)
+4. **Score on the private LB** (generalization via trustworthy CV, diverse ensembles, no public-LB chasing — see §4A)
 
 > Sources: `Project Eris - Solver Guidebook.pdf`, `shipd_docs.docx`, `solution_sub_instructions.txt`, `libs_allowed.txt`, `error_types.png`, and 7 screenshots of real pre-submission check failures. Where sources disagree, this file says which to follow.
 
@@ -99,6 +99,39 @@ Pre-submission runs four checks: **CSV Score Validation**, **Prompt Compliance**
 6. **Iterate with a log**: one change at a time (features → model → HPO → ensemble). Keep CV table. Submit 3–5 progressive versions if you have credits (the platform wants to see progression).
 7. **Freeze the final plan** (fixed counts, §3), full end-to-end run from clean `working/`, validate output (§5), then upload.
 8. **Comments in code explain reasoning** at each step (checklist item). Concise but real.
+
+---
+
+## 4A. Maximising the PRIVATE leaderboard (the one that pays)
+
+The public LB is a small, noisy slice of test; the private LB decides prizes and is hidden until the end. Treat **CV as the source of truth** and the public LB as a weak sanity check (a soft signal only; a gap between the two is normal and not a reason to change course).
+
+**Validation that predicts private**
+- Reproduce the *way the test split was made* using only the description and train data: random vs stratified vs group vs time. Mirror it exactly in CV. A split mismatch is the #1 cause of private-LB drops. Do not inspect or adapt to test distributions inside the pipeline (§2.3 #5).
+- Use enough folds/repeats that the CV standard error is small relative to the gains you chase: 5 folds minimum, **repeated CV (2–3 seeds of the split)** when data is small or the metric is noisy. Report mean ± std.
+- Only accept a change if the **CV gain exceeds the CV noise** (rule of thumb: > 1 std-error of fold means, or consistent across all/most folds and across split seeds). Reject "improvements" that only show up on the public LB.
+- Keep a **holdout sanity fold** that never touches HPO or blend-weight fitting once before the final run, to catch overfitting to CV itself. With HPO, prefer nested or at least fold-disjoint evaluation of the final config.
+- Check CV–public-LB agreement across your submissions: if rank order disagrees, trust CV unless you find a split mismatch.
+
+**Generalise, don't overfit**
+- Favour **more regularised, more diverse ensembles** over one heavily tuned model: multi-seed × multi-fold × 2–4 diverse model families, averaged. Variance reduction is the most reliable private-LB gain.
+- Limit HPO search space and trial count to what CV can resolve; many trials on a small/noisy CV *selects noise*. Prefer robust plateaus over a sharp optimum (smooth, mid-range params; no extreme values).
+- Blend weights: fit on OOF with non-negativity / sum-to-one, or just use simple/rank averages. Avoid many free weights on small OOF sets.
+- Post-processing (thresholds, clipping, calibration of *OOF-derived* mappings) must be tuned on OOF only, be low-dimensional, and be shown to help across folds; otherwise drop it.
+- Avoid features/encodings that are fragile to distribution shift (high-cardinality IDs, row order, file order, target-leaky aggregates). If a feature is great in CV only because of a train-specific artefact, it will not survive private.
+- Early stopping on validation folds is fine, but when the final model is retrained on all data, use a **fixed** step count derived from the CV runs in the same script (e.g. mean best iteration × 1.1), never a clock.
+- Choose losses/targets that match the metric (log1p for RMSLE, ranking loss for AUC-style objectives, focal/weighted losses only if the metric rewards it); verify on OOF with the **exact official metric** implemented from the description.
+
+**Experiment discipline**
+- One change per experiment; log each in a table (id, change, CV mean±std, per-fold, est. runtime, public LB if submitted, notes). Never compare scores from different CV splits.
+- Order of work by expected private gain per hour: (1) correct validation + metric → (2) strong baseline GBDT/pretrained model → (3) key features/representation → (4) loss/target/augmentation fit to the metric → (5) model diversity → (6) seeds/folds ensemble → (7) HPO → (8) micro post-processing. Do not start (7)–(8) before (1)–(4) are solid.
+- Use submissions strategically: baseline (valid pipeline) → best single model → ensemble → final. Don't burn credits on tiny tweaks; the free CSV check can compare candidates against the public LB with no credit.
+- Final run must reproduce the best CV config **from scratch in one command** with the fixed plan; verify the produced CSV's distribution looks like the OOF predictions (mean/std/class balance), as a bug-catching sanity check, not tuning.
+
+**Robustness checks before the final submit**
+- Prediction sanity: no constant outputs, class balance close to train priors where expected, ranges valid.
+- Stability: run the full script twice (or two seeds) and confirm the submission is near-identical or equal in quality (CV same, correlation of test preds ~1); large swings mean too few folds/seeds.
+- Runtime headroom ≥ 30 % on a clean run; no OOM at the largest batch. A crash or a late timeout loses everything the CV promised.
 
 ---
 
