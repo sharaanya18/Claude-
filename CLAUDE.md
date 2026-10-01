@@ -99,7 +99,7 @@ Pre-submission runs four checks: **CSV Score Validation**, **Prompt Compliance**
 
 ## 4. Standard workflow for every new challenge
 
-0. **Run the `eris-strategist` subagent first** (`.claude/agents/eris-strategist.md`) with the description and dataset path. It writes `./plan/eris_plan.md`; implement from that plan and keep it updated as experiments confirm or refute it.
+0. **Use the `.claude/` system** (map in §12). For a new challenge run `/eris-solve` (full pipeline) or at least: `/eris-contract` → `eris-data-auditor` + `eris-metric-engineer` → `eris-strategist` (writes `./plan/eris_plan.md`) → `eris-validation-architect` → `/eris-baseline`. Implement from the plan and keep it updated as experiments confirm or refute it.
 1. **Read the description twice.** Extract: task type, metric (and direction), submission columns/order/dtypes, row count, ID column, runtime/model-size limits, allowed/forbidden methods, "from scratch" or "fine-tuning" labelling.
 2. **Classify the domain** → pick the playbook in §6 and the compliance regime in §2/§7.
 3. **EDA (quick, in a scratch notebook, not in the final script):** shapes, dtypes, target distribution/imbalance, missingness, duplicates, ID/ordering leakage, train-vs-test distribution shift (adversarial thinking only; do not adapt to test), group/time structure, text lengths/image sizes/sequence lengths.
@@ -354,5 +354,20 @@ Per-domain training-loop essentials (fixed plan, no time branching): AdamW, line
 - Local layout to mimic the platform: `dataset/public/{train.csv,test.csv,sample_submission.csv,...}` and `working/submission.csv`.
 - If there is no GPU in the dev sandbox, smoke-test on a tiny subset by editing top-of-file constants, then **restore the full fixed plan** and record the expected A10G runtime estimate in a comment. Never ship a smoke-mode branch.
 - Before declaring a solution done, report: CV metric (per fold + mean±std), the fixed-work plan and estimated A10G runtime, compliance self-audit result (§7), and validator output (§5).
-- Do not copy Kaggle competitions or use LLM outputs as submission data. Do not use anything from the excluded `shipd_env` folder.
+- Do not copy Kaggle competitions or use LLM outputs as submission data. Never paste competitor or template code: the pattern library under `.claude/skills/eris-playbook/` is distilled hypothesis material (from the shipd_env pattern files and rejection log); write original, commented code.
 - Prefer iterating 3–5 submissions: baseline → features → model/HPO → ensemble → final.
+
+---
+
+## 12. The `.claude/` system (map)
+
+| Piece | Where | Use |
+|---|---|---|
+| Pipeline skills | `.claude/skills/eris-*/SKILL.md` | `/eris-solve` (everything), `/eris-start`, `/eris-contract`, `/eris-data-audit`, `/eris-validation`, `/eris-baseline`, `/eris-experiment`, `/eris-error-analysis`, `/eris-plateau`, `/eris-implement`, `/eris-review`, `/eris-presubmit`, `/eris-postsubmit`, `/eris-close`, `/eris-pattern`, `/eris-status`, `/eris-resume` |
+| Pattern library | `.claude/skills/eris-playbook/` | `/eris-playbook` routes to `references/00-s-tier-principles.md`, family playbooks (`families/*.md`), metric/decoding, validation, features, ensembling/training, engineering/compliance. Hypothesis material: validate on grouped CV; conflicts with §3 are marked DO NOT ADOPT |
+| Subagents | `.claude/agents/` | `eris-strategist` (plan), `eris-data-auditor`, `eris-metric-engineer`, `eris-validation-architect`, `eris-error-analyst`, `eris-compliance-reviewer`, `eris-runtime-reviewer`, `eris-red-team` (private-LB auditor), `eris-pattern-researcher` |
+| Scripts (stdlib only) | `.claude/scripts/` | `compliance_scan.py`, `validate_submission.py`, `make_groups.py`, `determinism_check.py`, `local_run.py`, `new_challenge.sh`, `solution_template.py`; tests in `scripts/tests/` |
+| Hooks | `.claude/settings.json` | SessionStart orientation; PostToolUse runs `compliance_scan.py` on every edit of a `solution*.py` and feeds ERRORs back |
+
+Defaults that never change: argv contract, real in-script training, no test statistics, fixed work plan (no clock/hardware/env branches), grouped CV that mirrors the hidden split, exact-metric training and decode,
+validated output grammar, reviewers before every submission credit. The challenge description overrides any default (§2.4).

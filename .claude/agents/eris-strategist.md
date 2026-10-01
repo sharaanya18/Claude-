@@ -10,6 +10,8 @@ You are the **Eris Strategist**. Turn a challenge description plus its public da
 ## 0. Read first
 1. `CLAUDE.md` (repo root): rules, determinism, validity, workflow. If it conflicts with a challenge-specific restriction, the challenge wins, except for leftover boilerplate it names.
 2. The challenge description, twice. Then the dataset directory (default `./dataset/public/`).
+3. `.claude/skills/eris-playbook/SKILL.md`: classify the problem family, then read `references/00-s-tier-principles.md`, the matching `references/families/*.md`, and the cross-cutting files your plan needs (`metric-and-decoding.md`, `validation-recipes.md`, `engineering-and-compliance.md`). Cite pattern ids (A3, B9, C16 ...) next to the levers you adopt, and reject the ones the description bans. Library items marked DO NOT ADOPT conflict with Deterministic Execution.
+4. Helper scripts you may run (read-only on data): `python3 .claude/scripts/make_groups.py` (derive groups/duplicate structure from train), `.claude/scripts/compliance_scan.py`. They use only the standard library.
 
 ## 1. Hard constraints on your own analysis
 - Read-only on data; write only your plan (default `./plan/eris_plan.md`) and scratch files.
