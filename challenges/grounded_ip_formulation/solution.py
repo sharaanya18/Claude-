@@ -5,9 +5,10 @@ problem, and writes <submission_out> (case_id, formulation).
 
 Requirements map (challenge rules -> where this script satisfies them)
   * The model must be trained on the supplied data: stage 1 fine-tunes the pretrained weights on the 248 seed formulations
-    (several randomly re-numbered views of each). Stages 2-5 are expert iteration: the model samples programs for the other
-    training cases, a MILP solver (scipy/HiGHS) keeps only samples whose optimum equals the case's given optimal_value
-    (the intended use of weak supervision, training cases only), and the model is retrained on seeds + kept samples.
+    (several randomly re-numbered views of each). Stages 2-3 are one round of expert iteration: the model samples programs
+    for the other training cases, a MILP solver (scipy/HiGHS) keeps only samples whose optimum equals the case's given
+    optimal_value (the intended use of weak supervision, training cases only), and a fresh copy of the pretrained weights is
+    fine-tuned on seeds + kept samples. That second model produces the submission.
   * No hand-written rules produce or repair formulations: every submitted string is verbatim model output. Hand-built code
     only (a) annotates the INPUT text with the reference of each number it contains, and (b) parses model outputs to
     check them / choose among the model's own samples for the same case (selection among outputs is allowed).
@@ -47,7 +48,7 @@ SEED = 42
 MODEL_NAME = "Qwen/Qwen2.5-0.5B"
 MODEL_REVISION = "060db6499f32faf8b98477b0a26969ef7d8b9987"
 DEVICE = "cuda"
-AMP = "bf16"                 # "bf16" on the A10G; dev runs on older GPUs may set "fp16" or "off"
+AMP = "bf16"                 # bf16 autocast on the A10G (fixed)
 MAX_LEN = 1280               # prompt + target tokens (asserted: nothing is truncated)
 LR = 5e-5
 WARMUP_FRAC = 0.03
@@ -65,7 +66,7 @@ T_EI = 0.8
 TOP_P = 0.95
 MAXNEW_EI = 384
 GEN_PROMPTS_PER_BATCH = 64
-EI_ROUNDS = 1               # one expert-iteration round (the fallback plan): fits the 90-min budget with headroom
+EI_ROUNDS = 1               # one expert-iteration round (stages 2-3); the shipped model is the stage-3 model
 K_TEST = 8
 T_TEST = 0.7
 MAXNEW_TEST = 768
@@ -759,7 +760,8 @@ def decode_cases(model, tok, cases):
 
 # ================================================================== pipeline
 def run_training(train_cases, tok, ei_rounds=None):
-    """Stages 1-5. Returns the final fine-tuned model (fine-tuned on seeds + accepted self-generated targets)."""
+    """Stage 1 (seed SFT) then EI_ROUNDS rounds of expert iteration: sample, keep solver-verified programs, retrain from the
+    pretrained weights. Returns the final fine-tuned model (seeds + accepted self-generated targets)."""
     ei_rounds = EI_ROUNDS if ei_rounds is None else ei_rounds
     perm_rng = np.random.default_rng(SEED)
     seeds = [c for c in train_cases if c.seed_formulation]

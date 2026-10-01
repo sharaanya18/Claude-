@@ -353,7 +353,8 @@ def decode_cases(model, tok, cases):
 
 # ================================================================== pipeline
 def run_training(train_cases, tok, ei_rounds=None):
-    """Stages 1-5. Returns the final fine-tuned model (fine-tuned on seeds + accepted self-generated targets)."""
+    """Stage 1 (seed SFT) then EI_ROUNDS rounds of expert iteration: sample, keep solver-verified programs, retrain from the
+    pretrained weights. Returns the final fine-tuned model (seeds + accepted self-generated targets)."""
     ei_rounds = EI_ROUNDS if ei_rounds is None else ei_rounds
     perm_rng = np.random.default_rng(SEED)
     seeds = [c for c in train_cases if c.seed_formulation]
