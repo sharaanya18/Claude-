@@ -58,9 +58,10 @@ def write_meta(ch, script, args, user, dataset=None):
     # locate the folder holding train.csv anywhere under /kaggle/input (the mount layout and zip nesting differ between uploads)
     find = ('import glob\nhits = sorted(glob.glob("/kaggle/input/**/train.csv", recursive=True))\n'
             'assert hits, "train.csv not found under /kaggle/input"\nPUB = os.path.dirname(hits[0])\nprint("data dir:", PUB)\n')
-    # the kernel's source files sit next to main.py (e.g. /kaggle/src), not in the cwd: copy them to a writable work dir and run from there
-    stage = ('SRC = os.path.dirname(os.path.abspath(__file__))\nRUN = "/kaggle/working/run"\n'
-             'shutil.copytree(SRC, RUN, dirs_exist_ok=True)\nos.chdir(RUN)\n')
+    # a script kernel ships only its code_file, so the sibling sources are embedded in main.py and written to a writable work dir at run time
+    srcs = {f.name: f.read_text() for f in kdir.glob("*.py") if f.name != "main.py"}
+    stage = (f'SRCS = {srcs!r}\nRUN = "/kaggle/working/run"\nos.makedirs(RUN, exist_ok=True)\n'
+             'for _n, _t in SRCS.items():\n    open(os.path.join(RUN, _n), "w").write(_t)\nos.chdir(RUN)\n')
     if script == "solution.py":
         cmd = stage + 'subprocess.check_call([sys.executable, "solution.py", PUB, "/kaggle/working/submission.csv"])'
     else:
