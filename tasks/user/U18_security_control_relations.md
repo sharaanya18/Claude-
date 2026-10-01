@@ -1,0 +1,18 @@
+# U18 — Security-control related-pair recovery on boards (user-supplied, verbatim)
+
+## Overview
+A security-compliance catalog is not a flat list: implementing one control depends on, feeds, or constrains others (e.g. account management depends on personnel termination, physical-access authorisation and audit event logging). Catalog authors record these interactions as related controls, and they overwhelmingly cross control families, linking controls whose prose looks nothing alike.
+You are given boards. Each board is a set of controls, each described by its title, statement and guidance, shuffled, with every explicit control identifier in the prose masked. Some of the board's controls are genuinely related to one another; the rest are same-family siblings that are not related - they share vocabulary with the cluster but have no recorded relationship. Recover the related pairs. Because relatedness is functional and mostly cross-family, the control that looks most similar to a given one is usually an unrelated sibling from its own family, while its true relata sit in other families and share little wording. Recovering the pairs requires reading what each control does and reasoning about which other controls its implementation depends on or interacts with. Control-disjoint task: the controls in the test boards never appear in training boards.
+
+## What a board is, how it is split, and why that prevents leakage
+A board is a related cluster plus same-family traps, built by walking a connected neighbourhood of the related-control graph and adding several controls from the seed's own family that are related to none of the cluster (lexical traps). Boards are shuffled so position carries no signal. The split is over individual controls, assigned by a fixed random seed: every control is placed entirely in either the training pool or the test pool, and boards are assembled only from controls within one pool. A control - its prose and every relationship touching it - appears on only one side. Explicit control identifiers (AC-2, PE-2, item-letter forms) are masked in the prose so a control cannot name its relata; each board is scored only against its own pairs over its own local indices.
+
+## Data
+train.csv: one row per training board: item_id; controls (JSON list of {"title","text"} one per control in fixed shuffled order; text is statement and guidance prose with identifiers masked as [CONTROL]; control at position i is control i); edges (training label: JSON list of related pairs [i,j], unordered board indices). test.csv: item_id and controls only. sample_submission.csv: valid submission format.
+Task: for each test board output edges: a JSON list of [i,j] integer pairs over the board's control indices, every pair you predict to be related. [2,5] and [5,2] are the same pair. Predict a pair only for a genuine relationship.
+Submission: CSV exactly item_id,edges, one row per test board, e.g. board_0170,"[[0, 3], [3, 7], [1, 7]]"; board_0171,"[[2, 4]]"; [] valid.
+
+## Evaluation
+Each board scored by F1 overlap between predicted pair set and true pair set (unordered pairs). Reported score = mean edge-F1 over all boards, with partial credit. F1 rewards recovering true pairs while penalising spurious ones; neither "everything related" nor "nothing related" scores well. Pairs undirected because relatedness is symmetric (catalog lists are only partly reciprocal - an artefact of curation).
+What not to use: any external catalog, control identifier list, or compliance mapping; solve from the supplied masked control text alone. Do not attempt to re-identify the controls against an outside catalog.
+(Compute, runtime and data sizes not stated in the pasted text.)

@@ -1,0 +1,24 @@
+# U15 — Catalogue-text tag ranking (user-supplied, verbatim minus chrome; Domain NLP, Medium, A10G)
+
+## Overview
+People were shown a picture and asked to describe what they saw, typing words against a clock. A word counted only when a second, independent person typed it too. You are not shown the picture. You are shown the one-line title a cataloguer wrote for it and a list of eighty candidate words. Three of those words are ones describers actually agreed on. Rank the list so those three come first. The two texts come from different people with different purposes: a cataloguer writes to identify an object within a collection; a describer writes what is in front of their eyes.
+
+## Task definition
+A case is one catalogue record: a short title and a pool of 80 candidate tag codes. Return the 80 codes in the order you judge most likely correct. Exactly 3 are tags at least two independent describers gave to that item; the other 77 were never given by anyone. One ranking of 80 candidates per case, produced independently for each of 4,792 evaluation cases. 15,003 training cases, each with its pool and the 3 correct codes marked.
+Inputs: the title text and the candidate pool. Nothing else (no picture, date, maker, material, collection, number of describers). Titles are short: four words median, one shortest, fifty-four longest; several European languages (collections catalogue in their own); may name the subject plainly, be a formal inventory phrase, or a proper name that says nothing about what is depicted. Tags are opaque codes such as t3c76f23812ae; the same code always means the same word throughout the data; what the word is and its language is not given - what each code means has to be learned from training cases.
+
+## Supervision and split
+Split unit is the HOLDING INSTITUTION: evaluation cases come from institutions that supply no training case; no item on both sides. Cataloguing convention travels with the institution (language, literalness, inventory vs descriptive phrases), so a solution fitted to house style must survive unseen collections. A tag is counted only when at least two independent describers supplied it. Candidate pools are frequency-matched: every candidate in a pool, correct or not, is drawn from one band of overall commonness; for each correct tag the decoys are drawn from immediately above and below it in that band, half from each side. How common a code is carries no information; the pool's own ordering carries none either.
+
+## Evaluation
+Mean average precision. Walk the ranking from the top; each time one of the 3 correct codes is reached record the fraction of codes so far that were correct; average those 3 figures; mean over every evaluation case. Order-only metric; no threshold. Submitting fewer than 80 codes is allowed (forfeits left-out correct codes; top ten only scores 0.037).
+Floor and ceiling on evaluation cases: perfect 1.000; supplied order 0.084; shuffled 0.086; reversed 0.085; sorted by code string 0.086; ranking by training answer frequency 0.072 descending / 0.084 ascending; by frequency across evaluation pools 0.064; never-a-training-answer first 0.088; strongest non-learned route (score each candidate by association with the title's words across training cases) 0.185.
+
+## Dataset (public/)
+train.csv (15,003 rows: case_id, record_title, candidate_tags space separated in supplied order); train_labels.csv (case_id, assigned_tags: the 3 codes, order carries no meaning); test.csv (4,792 rows same columns as train.csv); sample_submission.csv (case_id, ranked_tags; 0.084).
+Submission: CSV case_id,ranked_tags, one row per evaluation case (4,792 + header), any order, no pandas index column. Codes outside the pool ignored; repeated codes count once at first position; empty ranked_tags scores zero; duplicated case_id rejected; renamed columns rejected.
+
+## Rules
+Only valid input signal: the title text, the candidate pool supplied with it, and what is learned from training cases and answers. Not allowed: hardcoding a ranking for specific evaluation cases; using case_id strings as signal; using row order or the order candidates are listed within a pool; identifying the item a title refers to and consulting its collection (originating annotation project, published deposit, mirror, any archive of described items with words people gave); retrieving the picture from any external service and reading it.
+Pretrained model policy: fine-tuning a publicly available pretrained text model is permitted provided fitting genuinely uses the supplied training cases. A multilingual encoder is a reasonable starting point; no pretrained model has any notion of what the opaque tag codes mean, so the association between phrasing and code has to be learned here. Private, role-gated, API-key-based models and external inference APIs at prediction time prohibited.
+Compute: A10G.
