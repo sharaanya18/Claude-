@@ -42,6 +42,8 @@ MAX_CONS = 150
 
 # optimality gap used for MILP solves. scipy's default (1e-4) is looser than the 1e-6 counterfactual tolerance.
 MIP_REL_GAP = 1e-9
+# deterministic work cap per MILP (a node count, never a clock) so a degenerate sampled program cannot stall the run
+MIP_NODE_LIMIT = 20000
 
 
 class FormulationError(ValueError):
@@ -307,7 +309,7 @@ def solve(model: Model, mip_rel_gap: float = MIP_REL_GAP):
         cons = [LinearConstraint(A, lo, hi)]
     try:
         res = milp(c, constraints=cons, integrality=integrality, bounds=Bounds(lb, ub),
-                   options={"mip_rel_gap": mip_rel_gap, "disp": False})
+                   options={"mip_rel_gap": mip_rel_gap, "disp": False, "node_limit": MIP_NODE_LIMIT})
     except Exception:
         return None
     if res.status != 0 or res.x is None or not np.isfinite(res.fun):

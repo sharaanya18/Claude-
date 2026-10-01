@@ -1,0 +1,68 @@
+{
+ "summary": {
+  "exp": "smoke",
+  "fold": 0,
+  "ei": 1,
+  "overrides": {
+   "DEVICE": "cpu",
+   "AMP": "off",
+   "VIEWS_SEED": "1",
+   "VIEWS_EI": "1",
+   "VIEWS_EI_LARGE": "1",
+   "EPOCHS_S1": "1",
+   "EPOCHS_S3": "1",
+   "K_EI": "2",
+   "MAXNEW_EI": "48",
+   "MAXNEW_TEST": "48",
+   "K_TEST": "2",
+   "MICRO_BS": "2",
+   "ACCUM": "1",
+   "GEN_PROMPTS_PER_BATCH": "3",
+   "TEST_PROMPTS_PER_BATCH": "3"
+  },
+  "n_hold": 3,
+  "V_greedy": 0.0,
+  "V_selected": 0.0,
+  "pass_at_K": 0.0,
+  "no_valid": 0.6666666666666666,
+  "seed_n": 0,
+  "seed_score": null,
+  "seed_greedy_score": null,
+  "seed_terms": null,
+  "big_n": 0,
+  "big_score": null,
+  "wall_s": 289
+ },
+ "rows": [
+  {
+   "case_id": "p000699a",
+   "seed": false,
+   "status": "no_valid",
+   "greedy_v": false,
+   "sel_v": false,
+   "pass_k": false,
+   "n_valid": 0,
+   "chosen": "min x1 + x11 + x13 + x12 + x11 + x13 + x11 + x11 + x11 + x11 + x11 + x11 +"
+  },
+  {
+   "case_id": "p00b21b9",
+   "seed": false,
+   "status": "ok",
+   "greedy_v": false,
+   "sel_v": false,
+   "pass_k": false,
+   "n_valid": 1,
+   "chosen": "min x3 + x1 + x0 + x3 + x1 + x0 + x3 + x1 + x0 + x3 + x1 + x0 + x3 + x1 + x0 + x3"
+  },
+  {
+   "case_id": "p00cae57",
+   "seed": false,
+   "status": "no_valid",
+   "greedy_v": false,
+   "sel_v": false,
+   "pass_k": false,
+   "n_valid": 0,
+   "chosen": "x14; x1; x15; x1; x13; x1; x1; x1; x1; x1; x1; x1; x1; x1; x1;"
+  }
+ ]
+}
