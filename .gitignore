@@ -1,0 +1,5 @@
+# challenge data and run artefacts stay local (notes, reports and solution.py can be committed)
+challenges/*/dataset/
+challenges/*/working/
+__pycache__/
+*.pyc
