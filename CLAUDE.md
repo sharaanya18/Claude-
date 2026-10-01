@@ -54,6 +54,14 @@ The solution is later used to train AI agents, so it must **demonstrate real ML 
 ### 2.4 Challenge-specific text
 Restrictions in the challenge description (allowed model families, size caps, shorter runtime, "from scratch") **override** this file. But ignore leftover boilerplate that contradicts the guidebook ("no internet", "decoding tricks are fine", "fully rule-based is OK"). Unsure whether something is real or boilerplate → ask a reviewer, don't gamble.
 
+**Defaults that the description routinely overrides** (read the description's Compute / Runtime / "What not to use" lines *before* applying any default in this file; the stricter reading wins):
+- **Hardware:** many tasks are CPU-only (e.g. 10 cores, 62 GB, 1.5 h). Then the A10G/AMP/bf16 advice, "assume one A10G" and `device="cuda"` do not apply; hardcode `device="cpu"` and size the fixed plan for CPU.
+- **Pretrained weights:** "no pretrained weights" / "from scratch" / "no external checkpoints" variants exist even outside From-scratch labelling. Then no HF/timm weights and no pretrained tokenizers; train everything on the supplied data.
+- **Runtime:** a challenge-stated limit shorter than 1 h replaces the 50-min target; keep ≥ 30 % headroom against *that* limit.
+- **TTA:** allowed by default (§2.2) but banned whenever the description forbids test-time augmentation, multi-view or cross-row inference; check before using any flip/multi-crop averaging.
+- **Per-row independence:** if the description says each row/bag/case must be predicted on its own, treat any pooling, clustering, normalisation or calibration across test rows as banned, even when the data would permit it (§2.3 #5 applies to the whole test set, not just labels).
+- **Provenance:** never match test rows back to a source archive, filename, or ID pattern, even when the description only hints at it.
+
 ### 2.5 Grey areas (accept risk, or avoid)
 - **Regex:** fine for cleaning and deterministic number extraction; over-reliance or exploiting the data-generation process → reject.
 - **TF-IDF / n-grams / Markov chains / frequency stats:** reviewer's discretion, may differ per solver. Prefer them only as **extra inputs** to a trained model, never as the core. Default for text: fine-tune a transformer.
