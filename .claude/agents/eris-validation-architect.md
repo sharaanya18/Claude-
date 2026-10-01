@@ -33,8 +33,7 @@ wrong.
    and split seeds" when comparing experiments.
 
 ## Output
-- `validate.py` (importable `run_cv(config) -> oof, report`) or the equivalent functions inside the solution scaffold, runnable with the
-  platform's fixed plan.
+- A harness that does not duplicate `solution.py`: `solution.py` stays the self-contained source of truth, import-safe, exposing `CONFIG` and `run_cv(config) -> {oof, fold_scores, slices, secondary}`; `validate.py` is `.claude/scripts/cv_driver_template.py` copied next to it (paired fold differences, log writer, saturated-metric fallback).
 - `reports/split_audit.md`: hidden-split reading, held-out unit, group derivation (counts, largest group), fold sizes, **bias direction of the
   proxy** (optimistic/pessimistic and why), noise estimate, what the harness cannot see, and the exact command to reproduce.
 Never use test features. Never tune on the public leaderboard.

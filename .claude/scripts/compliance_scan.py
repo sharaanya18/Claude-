@@ -296,7 +296,7 @@ class Scanner(ast.NodeVisitor):
         if name.endswith("cudnn.deterministic") or name == "torch.backends.cudnn.deterministic":
             self.seen["cudnn_det"] = True
         # fits on test-ish data
-        if last in FIT_ATTRS:
+        if last in FIT_ATTRS and isinstance(node.func, ast.Attribute):
             for a in list(node.args) + [k.value for k in node.keywords]:
                 hit = self.mentions_test(a)
                 if hit:
@@ -385,7 +385,7 @@ def scan(path):
 
 
 def main(argv):
-    if len(argv) < 2:
+    if len(argv) < 2 or argv[1] in ("-h", "--help"):
         print(__doc__)
         return 64
     path = argv[1]

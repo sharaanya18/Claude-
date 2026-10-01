@@ -84,3 +84,10 @@ sentences in a comment, and quantify the cost of the conservative choice.
 ## V14. Reporting block (put it in the plan and in the final answer)
 Split design + bias direction; folds × repeats; metric mean ± std and per-fold; per-slice numbers; selection steps with
 their nested check; sanity-holdout score; estimated runtime from profiling; expected private band as an estimate.
+
+## V15. Saturated metrics and noise-free data
+When every fold scores the same (ceiling 1.0, std 0) the paired-SE rule has nothing to resolve. (1) Prove saturation is benign: grouped vs random folds give the same
+answer, shuffling one suspect feature at a time costs ~nothing, a held-out group behaves like the rest. (2) Choose among candidates on a secondary continuous metric
+(log-loss, Brier, margin) with the same paired-fold rule. (3) Stress the model where unseen data will differ: drop or perturb the dominant feature block, add label noise,
+shrink training groups, hold out the rarest slice. (4) Prefer the simplest model that is perfect under all stresses; document that the model *learned* the structure (learned
+weights/feature importances in a log line) rather than a hand table. A trivially separable task still needs a trained model as the primary (strip-the-ML test).

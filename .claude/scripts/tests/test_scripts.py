@@ -73,3 +73,69 @@ class TemplateScan(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HalfRows(unittest.TestCase):
+    def _public(self):
+        d = Path(tempfile.mkdtemp()) / "public"
+        d.mkdir()
+        write(d / "train.csv", [["id", "x", "y"]] + [[f"t{i}", str(i), str(i % 2)] for i in range(10)])
+        write(d / "test.csv", [["id", "x"]] + [[f"e{i}", str(i * 3)] for i in range(10)])
+        write(d / "sample_submission.csv", [["id", "y"]] + [[f"e{i}", "0"] for i in range(10)])
+        return d
+
+    def _solution(self, body):
+        f = Path(tempfile.mkdtemp()) / "solution.py"
+        f.write_text("import csv, sys\nfrom pathlib import Path\npub, out = Path(sys.argv[1]), Path(sys.argv[2])\n"
+                     "test = list(csv.DictReader(open(pub / 'test.csv')))\n" + body +
+                     "out.parent.mkdir(parents=True, exist_ok=True)\n"
+                     "w = csv.writer(open(out, 'w', newline='')); w.writerow(['id', 'y'])\n"
+                     "[w.writerow([r['id'], p]) for r, p in zip(test, preds)]\n")
+        return f
+
+    def test_per_row_passes(self):
+        sol = self._solution("preds = [float(r['x']) * 2 for r in test]\n")
+        r = run(S / "half_rows_test.py", sol, self._public())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_whole_test_normalisation_fails(self):
+        sol = self._solution("m = sum(float(r['x']) for r in test) / len(test)\npreds = [float(r['x']) - m for r in test]\n")
+        r = run(S / "half_rows_test.py", sol, self._public())
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+
+
+class SchemaAudit(unittest.TestCase):
+    def test_prints_schema_only(self):
+        d = Path(tempfile.mkdtemp())
+        write(d / "train.csv", [["id", "text", "label"], ["a1", "hello secret", "0"]])
+        write(d / "test.csv", [["id", "text"], ["b7", "TOPSECRETVALUE"], ["b8", "x"]])
+        write(d / "sample_submission.csv", [["id", "label"], ["b7", "0"], ["b8", "0"]])
+        r = run(S / "test_schema_audit.py", d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("TOPSECRETVALUE", r.stdout)
+        self.assertIn("2 rows", r.stdout)
+
+
+class TokenKeys(unittest.TestCase):
+    def test_token_key_groups(self):
+        d = Path(tempfile.mkdtemp())
+        write(d / "t.csv", [["id", "text"], ["1", "a proj1_3 b"], ["2", "proj1_9 c"], ["3", "proj2_1 d"], ["4", "x proj2_5"]])
+        r = run(S / "make_groups.py", d / "t.csv", "--token-key", r"text:proj(\d+)_", "--out", d / "g.csv")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        g = [x["group"] for x in csv.DictReader(open(d / "g.csv"))]
+        self.assertEqual(g[0], g[1])
+        self.assertEqual(g[2], g[3])
+        self.assertNotEqual(g[0], g[2])
+
+
+class ScannerFalsePositive(unittest.TestCase):
+    def test_bare_fit_predict_helper_is_not_flagged(self):
+        d = Path(tempfile.mkdtemp())
+        f = d / "solution.py"
+        f.write_text("import sys\ndef fit_predict(train, y, test):\n    return test\nimport sklearn\n"
+                     "p = fit_predict([1], [1], [2])\nclass M:\n    def fit(self, x): return self\nM().fit([1])\n"
+                     "import random; random.seed(0)\nopen(sys.argv[2], 'w').write(str(sys.argv[1]))\n")
+        import json
+        r = run(S / "compliance_scan.py", f, "--json")
+        rules = {x["rule"] for x in json.loads(r.stdout)}
+        self.assertNotIn("test-fit", rules)

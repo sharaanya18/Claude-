@@ -12,6 +12,8 @@ Usage examples
   python3 make_groups.py train.csv --keys site_id --folds 5 --label label --seed 42 --out groups.csv
   # audit an existing fold column against the derived groups
   python3 make_groups.py train.csv --keys site_id --audit-fold fold --out /dev/null
+  # derive groups from a token embedded in text (e.g. "proj85_20" identifies the thread)
+  python3 make_groups.py train.csv --token-key 'text:proj\d+' --folds 5 --out groups.csv
 
 Output CSV columns: row (0-based), group, fold (if --folds). Prints group-size stats; a giant group (>10% of
 rows) means folds will be unbalanced: inspect which key links everything before capping or splitting it.
@@ -92,9 +94,20 @@ def near_duplicate_pairs(texts, thresh, bands=16, rows=4, seed=0):
                     yield a, b
 
 
-def build_groups(rows, keys, text_cols, jaccard):
+def build_groups(rows, keys, text_cols, jaccard, token_keys=()):
     n = len(rows)
     uf = UF(n)
+    for spec in token_keys:                       # "col:REGEX": every regex match in the column is a key
+        col, rx = spec.split(":", 1)
+        pat = re.compile(rx)
+        first = {}
+        for i, r in enumerate(rows):
+            for m in set(pat.findall(r.get(col, ""))):
+                m = m if isinstance(m, str) else "|".join(m)
+                if m in first:
+                    uf.union(i, first[m])
+                else:
+                    first[m] = i
     for k in keys:
         first = {}
         for i, r in enumerate(rows):
@@ -167,6 +180,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("csv")
     ap.add_argument("--keys", default="", help="comma list of columns; rows sharing a value are one group")
+    ap.add_argument("--token-key", action="append", default=[],
+                    help="COL:REGEX, repeatable. Every match of REGEX inside COL is a key that links rows (e.g. a project token embedded in text)")
     ap.add_argument("--text", default="", help="comma list of text columns for exact/near duplicate links")
     ap.add_argument("--jaccard", type=float, default=0.85, help="near-duplicate char-5-gram Jaccard threshold; 1.0 = exact only")
     ap.add_argument("--folds", type=int, default=0)
@@ -179,7 +194,7 @@ def main():
         rows = list(csv.DictReader(fh))
     keys = [c for c in a.keys.split(",") if c]
     text = [c for c in a.text.split(",") if c]
-    gid = build_groups(rows, keys, text, a.jaccard)
+    gid = build_groups(rows, keys, text, a.jaccard, a.token_key)
     sizes = Counter(gid)
     n = len(rows)
     big = max(sizes.values())

@@ -21,7 +21,7 @@ Decision unit, valid answer, invalid outputs, metric terms, bans, silences, comp
 Run both in one message. Read their reports; resolve discrepancies (metric prose vs formula) explicitly.
 
 ## Phase 3 — Strategy
-Agent `eris-strategist` (gives it contract + audit + metric spec paths) → `plan/eris_plan.md`. Challenge the plan: is the primary lean? Is there a frozen-probe yardstick? Is every lever tied to a
+Agent `eris-strategist` (gives it contract + audit + metric spec paths) → `challenges/<slug>/reports/eris_plan.md`. Challenge the plan: is the primary lean? Is there a frozen-probe yardstick? Is every lever tied to a
 pattern id and checked against the bans? Pick primary + fallback + rejected options.
 
 ## Phase 4 — Validation

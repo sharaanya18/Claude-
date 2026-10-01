@@ -1,3 +1,4 @@
+# eris-template-version: 3
 """Solver for <CHALLENGE NAME>.
 
 Reads <public_dir>, trains real models inside this script, writes <submission_out>.
@@ -18,7 +19,7 @@ requirement visible here, one line each, and point to where it is satisfied):
 Template rules (delete this paragraph when you specialise the file):
   1. Fill TODO blocks only; do not add time-based, hardware-based or environment-based branching.
   2. Write the submission once, at the end, validated; any failure must raise (no placeholder or fallback output).
-  3. Run `python3 .claude/scripts/compliance_scan.py solution.py` after every edit.
+  3. Run `python3 <repo>/.claude/scripts/compliance_scan.py solution.py` after every edit (the untouched scaffold reports one expected ERROR, no-training, until a real fit exists).
 """
 import os
 import random

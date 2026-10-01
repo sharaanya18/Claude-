@@ -79,3 +79,8 @@ non-hub model loads. Orange: unreadable source; thin ML wrapper over a rule engi
 (model family, size, runtime, from-scratch, TTA ban, per-row independence). Green: seeds fixed, workers fixed, comments
 present, double-run diff clean, validator green, runtime profiled.
 Run: `compliance_scan.py` → `validate_submission.py` → `determinism_check.py`, then the three reviewer agents.
+
+## 5. Trivially separable or templated data (strip-the-ML tension)
+If the data are separable by simple keywords or fixed templates, a rule table would also score perfectly, which is exactly what the strip-the-ML test punishes. Keep a trained model as the
+primary and make the discovery *visible*: log learned weights/importances, show that the model recovers the structure from raw inputs (no hand-written keyword list, regex or lookup in the code),
+state in a comment that the structure was found by the model, and stress-test it (V15). Never encode the discovered pattern as a rule outside the model.

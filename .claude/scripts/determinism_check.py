@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Run solution.py twice with the exact platform command and compare the outputs (stdlib only).
 
-Usage: python3 determinism_check.py SOLUTION.py PUBLIC_DIR [--runs 2] [--workdir working/determinism] [--timeout 5400]
+Usage: python3 determinism_check.py SOLUTION.py PUBLIC_DIR [--runs 2] [--workdir DIR] [--timeout 5400]
+(any cwd; default workdir is <solution dir>/working/determinism)
 
 Prints per-run wall time, sha256 of each submission and whether they are byte-identical. Differences are
 reported with the first differing line so you can find the unseeded component. Platform runs use
@@ -23,7 +24,7 @@ def main(argv):
         return 64
     sol, public = Path(argv[1]).resolve(), Path(argv[2]).resolve()
     runs = int(argv[argv.index("--runs") + 1]) if "--runs" in argv else 2
-    work = Path(argv[argv.index("--workdir") + 1]) if "--workdir" in argv else Path("working/determinism")
+    work = (Path(argv[argv.index("--workdir") + 1]) if "--workdir" in argv else sol.parent / "working" / "determinism").resolve()
     timeout = int(argv[argv.index("--timeout") + 1]) if "--timeout" in argv else 5400
     outs = []
     for r in range(runs):
@@ -38,8 +39,8 @@ def main(argv):
         ok = out.exists()
         digest = hashlib.sha256(out.read_bytes()).hexdigest() if ok else "-"
         print(f"run {r}: exit={p.returncode} wall={dt:.0f}s sha256={digest[:16]} out={'yes' if ok else 'MISSING'}")
-        if p.returncode != 0:
-            print(p.stderr[-2000:])
+        if p.returncode != 0 or not ok:
+            print(p.stderr[-2000:] or "solution exited 0 but wrote no submission at the given path")
             return 1
         outs.append(out)
     base = outs[0].read_bytes()

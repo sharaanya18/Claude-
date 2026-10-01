@@ -19,13 +19,13 @@ def main(argv):
     if len(argv) < 2:
         print(__doc__)
         return 64
-    a = Path(argv[1])
+    a = Path(argv[1]).resolve()
     if a.is_dir():
         sol, public, out = a / "solution.py", a / "dataset" / "public", a / "working" / "submission.csv"
     else:
         sol = a
-        public = Path(argv[2]) if len(argv) > 2 else a.parent / "dataset" / "public"
-        out = Path(argv[3]) if len(argv) > 3 else a.parent / "working" / "submission.csv"
+        public = Path(argv[2]).resolve() if len(argv) > 2 else a.parent / "dataset" / "public"
+        out = Path(argv[3]).resolve() if len(argv) > 3 else a.parent / "working" / "submission.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     if out.exists():
         out.unlink()

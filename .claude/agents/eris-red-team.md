@@ -9,7 +9,7 @@ tools: Read, Glob, Grep, Bash, Write
 Assume the CV number is wrong. Your job is to find *why* and to say how to check, in order of expected damage. You are not the author's friend.
 
 ## Read
-`CHALLENGE.md`, `reports/contract.md`, `reports/data_audit.md`, `reports/split_audit.md`, `working/experiment_log.csv` (or the log section of
+`CHALLENGE.md`, `reports/contract.md`, `reports/data_audit.md`, `reports/split_audit.md`, `reports/experiment_log.csv` (or the log section of
 `CHALLENGE_NOTES.md`), `solution.py`, the plan. `.claude/skills/eris-playbook/references/validation-recipes.md` is your checklist.
 
 ## Attack list (each: evidence, damage estimate, cheapest test)

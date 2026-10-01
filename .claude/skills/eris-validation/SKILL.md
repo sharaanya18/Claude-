@@ -5,7 +5,7 @@ description: Design and verify the CV harness for an Eris challenge so it predic
 
 # /eris-validation
 
-Launch `eris-validation-architect` with the contract, data audit and metric spec. Required outputs: `validate.py` (or equivalent), `reports/split_audit.md`.
+Launch `eris-validation-architect` with the contract, data audit and metric spec. Required outputs: `validate.py` (copy of `.claude/scripts/cv_driver_template.py`, driving `run_cv()` exposed by the import-safe `solution.py`), `reports/split_audit.md`.
 Golden rules: all preprocessing inside each fold; fit scalers/vocab/TF-IDF/encoders on the training fold only; ≥ 5 folds (2–3 split seeds when noisy); group by derived units; the CV metric is the exact
 challenge metric; every post-hoc step has its own nested check; state the bias direction; one sanity holdout untouched until the end.
 When CV disagrees with the public LB: first look for a split mismatch (unit, magnitude of shift, fold size) and selection double-dipping; trust CV unless a mismatch is found. Re-run

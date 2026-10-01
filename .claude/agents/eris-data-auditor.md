@@ -9,10 +9,11 @@ tools: Read, Glob, Grep, Bash, Write
 You produce evidence, not opinions. Every claim in your report carries a number and the command that produced it.
 
 ## Rules
-- Read-only on `dataset/public/`. Write only `reports/data_audit.md` and scratch under `working/audit/`.
+- Read-only on `dataset/public/`. Write only `reports/data_audit.md` and scratch under `reports/audit/`.
 - Train drives decisions. From test files you may read schema, row count, id format and file sizes (for runtime/memory
   planning). Never compute test feature statistics to choose features, splits or thresholds (CLAUDE.md §2.3.5).
-- Only the Python standard library may be installed; use pandas/numpy if present, else `csv`. Do not install packages.
+- Use pandas/numpy when they are importable, otherwise the standard library `csv`; do not install packages. The helper scripts in `.claude/scripts/` are stdlib-only.
+- For the test files run `python3 .claude/scripts/test_schema_audit.py dataset/public` and nothing else (schema, row count, id pattern). Do not open test.csv and print values, do not intersect test text/tokens with train: that is peeking and is recorded as a violation.
 - Read the description's published statistics (split sizes, coverage rates, reference scores) and reproduce them on train
   when possible: it proves the metric and split are understood.
 
@@ -22,7 +23,7 @@ You produce evidence, not opinions. Every claim in your report carries a number 
 2. **Targets**: distribution, imbalance ratio, per-class counts, rare labels' positive *groups*, target range/skew,
    duplicated inputs with different labels (irreducible ambiguity rate).
 3. **Structure and groups**: candidate group keys (site, doc, user, project, case, object, environment); derive groups
-   with `python3 .claude/scripts/make_groups.py train.csv --keys ... --text ... --jaccard ...`; group-size distribution;
+   with `python3 .claude/scripts/make_groups.py train.csv --keys ... --token-key 'COL:REGEX' --text ... --jaccard ...` (token keys derive groups from identifiers embedded in text); group-size distribution;
    giant-group warning; sliding-window or paired-view overlap; sibling candidates inside one case.
 4. **Leakage scan**: ids/row order/file size/position vs target (rank correlation, simple monotone probes on train); columns
    only known after the outcome; candidate order vs answer position; template artefacts.
