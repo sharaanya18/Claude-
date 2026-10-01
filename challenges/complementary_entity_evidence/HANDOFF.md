@@ -20,3 +20,6 @@ Branch: `ccr-88f20c83-nwrhm0`. Read `/home/user/Claude-/CLAUDE.md` (rules, §1A 
 
 ## Reviewer questions to settle (from the plan)
 Anchor masking (Q4), conditioning of the decode on the retention rule (Q5), whether expected-union decoding counts as acceptable metric-aware decoding (the description does not forbid it).
+
+## Leaderboard snapshot from the user (public board, ~1/3 of test cohorts, ≈55 slates so SE ≈ 0.04; private ≈109 slates, SE ≈ 0.025)
+AI baseline **0.7153**; rank 1 "frog" 0.7708; rank 2 0.6910; rank 3 0.6875; 1/10 solvers beat AI; 4 more baseline-beaters activate the $650 pool and the closing countdown (then up to 10 solvers continue). Calibration: our electra-small CPU cohort-CV is 0.764, already above the AI baseline on CV. Public is noisy: never tune on it. Priority: get a compliant, validated submission above 0.7153 early (credit economy: 6 credits, baseline -> improved -> best), then improve.

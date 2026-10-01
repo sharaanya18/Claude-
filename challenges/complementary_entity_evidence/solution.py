@@ -195,7 +195,8 @@ def decode_pair(probs, known_idx, ids):
 class RoleTagger(nn.Module):
     def __init__(self, n_roles, tok):
         super().__init__()
-        self.enc = AutoModel.from_pretrained(MODEL_NAME, revision=MODEL_REVISION)
+        # newer transformers load the checkpoint dtype (fp16 for DeBERTa-v3): keep fp32 master weights, mixed precision is applied by amp_ctx()
+        self.enc = AutoModel.from_pretrained(MODEL_NAME, revision=MODEL_REVISION).float()
         self.enc.resize_token_embeddings(len(tok))
         h = self.enc.config.hidden_size
         self.ent_id = tok.convert_tokens_to_ids("[ENT]")
