@@ -53,6 +53,7 @@ from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warm
 MODEL_NAME = "microsoft/deberta-v3-large"
 MODEL_REVISION = "main"         # DEV NOTE: pin to an exact commit sha before the final submission
 DEVICE = "cuda"
+AMP_DTYPE = "bfloat16"          # fixed; bf16 is native on the A10G. dev_run.py may set "float32" on pre-Ampere dev GPUs (no bf16 hardware)
 SEED = 42
 N_FOLDS = 5
 MAX_EPOCHS = 4                  # the LR schedule is defined for MAX_EPOCHS; the final refit trains the CV-chosen epoch count
@@ -238,7 +239,7 @@ def predict_logits(model, tok, texts):
     out = np.zeros((len(texts), model.head.out_features), np.float32)
     order = sorted(range(len(texts)), key=lambda i: len(texts[i]))        # length-sorted for speed; output realigned
     for sel, ids, am in batches([texts[i] for i in order], tok, 64, False, 0):
-        with torch.autocast("cuda", dtype=torch.bfloat16):
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=AMP_DTYPE == "bfloat16"):
             lg = model(ids, am)
         for k, j in enumerate(sel):
             out[order[j]] = lg[k].float().cpu().numpy()
@@ -260,7 +261,7 @@ def train_model(examples, n_roles, tok, epochs, seed, eval_hook=None):
         tot, cnt = 0.0, 0
         for sel, ids, am in batches(texts, tok, BATCH_SIZE, True, seed * 1000 + ep):
             y, m = Y[sel].to(DEVICE), M[sel].to(DEVICE)
-            with torch.autocast("cuda", dtype=torch.bfloat16):
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=AMP_DTYPE == "bfloat16"):
                 lg = model(ids, am)
             loss = (nn.functional.binary_cross_entropy_with_logits(lg.float(), y, reduction="none") * m).sum() / m.sum().clamp(min=1)
             loss.backward()
