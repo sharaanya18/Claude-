@@ -3,3 +3,4 @@ challenges/*/dataset/
 challenges/*/working/
 __pycache__/
 *.pyc
+challenges/toy_support/
