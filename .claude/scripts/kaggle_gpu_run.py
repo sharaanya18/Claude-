@@ -70,9 +70,9 @@ def write_meta(ch, script, args, user, dataset=None, sets=(), name=None):
         cmd = ('os.makedirs("dataset", exist_ok=True)\n'
                'shutil.copytree(PUB, "dataset/public", dirs_exist_ok=True)\n'
                f'subprocess.check_call([sys.executable, "{script}"] + {args!r})\n')
-    post = ("for d in ('reports', 'working'):\n"
-            "    if os.path.isdir(d):\n"
-            "        shutil.copytree(d, '/kaggle/working/' + d, dirs_exist_ok=True)\n")
+    post = ""
+    cmd = "try:\n" + "".join("    " + ln + "\n" for ln in cmd.strip().splitlines()) + (
+        "finally:\n    shutil.rmtree('working/hf_cache', ignore_errors=True)\n    shutil.rmtree('/kaggle/working/hf_cache', ignore_errors=True)\n")
     wrapper.write_text(pre + find + cmd + post)
     (kdir / "kernel-metadata.json").write_text(json.dumps({
         "id": f"{user}/{kn}", "title": kn, "code_file": "main.py", "language": "python", "kernel_type": "script",

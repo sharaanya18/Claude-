@@ -270,7 +270,8 @@ def train_model(examples, n_roles, tok, epochs, seed, eval_hook=None):
             y, m = Y[sel].to(DEVICE), M[sel].to(DEVICE)
             with amp_ctx():
                 lg = model(ids, am)
-            loss = (nn.functional.binary_cross_entropy_with_logits(lg.float(), y, reduction="none") * m).sum() / m.sum().clamp(min=1)
+            # sum over the observed roles of a sentence, mean over sentences: averaging over all ~73 roles shrinks the gradient of the rare positives ~70x
+            loss = (nn.functional.binary_cross_entropy_with_logits(lg.float(), y, reduction="none") * m).sum() / len(sel)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
