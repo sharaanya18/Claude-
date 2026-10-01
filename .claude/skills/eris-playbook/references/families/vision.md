@@ -13,7 +13,7 @@ directional output channels. Banned task-specific checkpoints (species/medical/d
 - **Classification / multi-label (few hundred–few thousand photos, grouped by site)**: the winner on a flood-photo task
   was the *simplest*: one large frozen backbone (DINOv2-L at 448, CLS ‖ mean-patch, flip-averaged) + per-label
   logistic regression with the regularisation C chosen per label on grouped folds, refit on 100%; fine-tuned multi-member
-  ensembles ranked below. Mirror: frozen probe yardstick → LP-FT of the last stage with cached lower activations (E12) →
+  ensembles ranked below. **Acceptance caution**: the guidebook treats a linear/tabular head on frozen embeddings as grey area (reviewer may reject), so ship LP-FT (real parameter updates, asserted) or full fine-tuning as the primary and keep the pure probe as yardstick/minor member. Mirror: frozen probe yardstick → LP-FT of the last stage with cached lower activations (E12) →
   full fine-tune only if the probe is weak. Site-weighted loss; balanced folds on rare positives (V6); per-label model
   selection nested. Native aspect/resolution for photographs; EXIF transpose.
 - **Segmentation / instances**: U-Net with GroupNorm for small batches; auxiliary geometric channels + watershed for

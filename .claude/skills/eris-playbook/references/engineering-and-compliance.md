@@ -7,7 +7,7 @@ the source-library advice that **conflicts** with the Deterministic Execution ch
 - Fixed epochs, folds, trials, boosting rounds, beam width, batch size, workers, threads. Time is for `print` only.
   Never in `if`, `while`, `break`, `min()`, or library arguments (`timeout=`, `time_limit=`). Early stopping on a
   validation *metric* is fine; keep patience and max epochs fixed.
-- **DO NOT ADOPT** from the source library: time guards that skip folds/steps (B4, "3100 s guard"), tiered run modes
+- **DO NOT ADOPT** from the source library: placeholder/fallback submissions (H1), time guards that skip folds/steps (B4, "3100 s guard"), tiered run modes
   chosen by flags or runtime pressure (H3), `try/except` around optional model loads that silently drop members (H4),
   `os.environ`-selected members/modes (F8 says never), `cuda if available else cpu` switches. They look protective
   and are exactly what the checker rejects. Pick one plan, assume one A10G (or the stated CPU), hardcode it.
@@ -28,8 +28,10 @@ the source-library advice that **conflicts** with the Deterministic Execution ch
 - Inline `validate_submission` inside the script; atomic write (temp + `os.replace`) (F4, H2). Validate against the
   description's grammar (JSON, `lifecycle_profile=` prefix, fixed-decimal floats without scientific notation, sorted
   letter pairs, distinct selections), not only against the sample.
-- Placeholder-first (H1): a valid file is written before expensive work, then overwritten; a later failure must
-  **raise**, never ship the placeholder silently. Never write output inside an `except` block.
+- **No placeholder or fallback submissions** (the library's "placeholder-first" H1 is DO NOT ADOPT here): a file
+  written from `sample_submission.csv` before training is a constant-output fallback path, which the platform's
+  Deterministic Execution/Prompt Compliance checks and human reviewers read as a red flag. Write the submission once, at
+  the end, validated; any failure must **raise**. Never write output inside an `except` block.
 - Source < 512,000 bytes, plain readable, no base64/zlib blobs, no `exec/eval`, no runtime-generated code, no
   environment probing. Comments explain reasoning; reviewers read the script as training data.
 - Cache only inside one run, hash-keyed by every input that determines the result (N1); never reuse model

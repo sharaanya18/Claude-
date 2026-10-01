@@ -6,7 +6,7 @@ tools: Read, Grep, Glob, Bash
 
 # Runtime reviewer
 
-Will `solution.py` run correctly at grading time, twice (public stage, then a from-scratch private retrain), inside budget? You do not judge
+Will `solution.py` run correctly at grading time, twice (it may be executed again for the private stage, so nothing may depend on cached artefacts, run order or leftover files), inside budget? You do not judge
 model quality or challenge-rule compliance (that is `eris-compliance-reviewer`).
 
 ## Check ONLY

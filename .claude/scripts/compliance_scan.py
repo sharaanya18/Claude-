@@ -31,6 +31,7 @@ BAD_IMPORTS = {"openai", "anthropic", "google.generativeai", "cohere", "mistrala
                "requests", "urllib3", "selenium", "bs4", "scrapy", "httpx", "aiohttp"}
 BAD_URL = re.compile(r"(github\.com|githubusercontent|gitlab\.com|kaggle\.com/(datasets|c/)|"
                      r"drive\.google|dropbox|s3\.amazonaws|storage\.googleapis)", re.I)
+HELDOUT = re.compile(r"(^|[/_.\\s-])(private|answers?|held[-_ ]?out|ground[-_ ]?truth|solution\\.csv|labels?_test|test_labels?)([/_.\\s-]|$)", re.I)
 ABS_PATH = re.compile(r"^(/home/|/kaggle/|/content/|/mnt/|/Users/|C:\\\\|/tmp/)")
 SEED_CALLS = {"seed", "manual_seed", "manual_seed_all", "set_seed", "seed_everything"}
 
@@ -145,6 +146,10 @@ class Scanner(ast.NodeVisitor):
                     self.add("ERROR", "external-source",
                              f"URL/host in executable string: {node.value[:80]!r} (only HF/timm weights allowed)",
                              node, "CLAUDE.md §2.3")
+                if HELDOUT.search(node.value) and not self.is_docstring(node) and len(node.value) < 200:
+                    self.add("WARN", "heldout-reference", f"string {node.value[:70]!r} refers to private/answer/held-out data: "
+                             "the platform's Held-out Answer Ingestion check fails any solution that reads held-out answers; "
+                             "remove it or justify it in a comment", node, "CLAUDE.md §7 / platform checks")
                 if ABS_PATH.match(node.value) and not self.is_docstring(node):
                     self.add("WARN", "abs-path", f"hardcoded absolute path {node.value[:60]!r}", node, "CLAUDE.md §1")
 

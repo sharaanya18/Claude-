@@ -8,9 +8,16 @@ Compliance notes (keep this block accurate; reviewers read it):
   * fixed work plan: epochs, folds, trials and counts are constants; wall-clock time is logged, never branched on;
   * all randomness is seeded; pretrained weights (if any) come from the HF/timm hub with a pinned revision.
 
+Challenge requirements map (the Prompt Compliance check reads the code against the challenge text; make each explicit
+requirement visible here, one line each, and point to where it is satisfied):
+  * hardware / runtime stated by the challenge: TODO (e.g. "CPU only, 10 cores, 90 min -> device fixed to cpu, ~25 min")
+  * required methods (e.g. fine-tuning, from-scratch, trained ranker): TODO
+  * prohibited methods / models / data (copy each ban): TODO -> how this script avoids it
+  * output grammar: TODO
+
 Template rules (delete this paragraph when you specialise the file):
-  1. Fill TODO blocks only; do not add time-based or hardware-based branching.
-  2. Keep placeholder-first + validate_submission + atomic write.
+  1. Fill TODO blocks only; do not add time-based, hardware-based or environment-based branching.
+  2. Write the submission once, at the end, validated; any failure must raise (no placeholder or fallback output).
   3. Run `python3 .claude/scripts/compliance_scan.py solution.py` after every edit.
 """
 import os
@@ -98,14 +105,10 @@ def main():
     sample = pd.read_csv(sample_path, keep_default_na=False)
     log(f"train {train.shape} test {test.shape}")
 
-    # 1) placeholder-first: a valid file exists even if later stages are interrupted.
-    #    It is always overwritten below. A failure later must raise, never ship this file silently.
-    write_submission(sample.copy(), sample_path)
-
-    # 2) TODO: derive groups from the data (union-find over shared keys / near-duplicates), build
+    # 1) TODO: derive groups from the data (union-find over shared keys / near-duplicates), build
     #    group-aware folds that mirror the hidden split, then train models per fold.
-    # 3) TODO: out-of-fold predictions -> exact metric -> report mean +- std (and per-slice scores).
-    # 4) TODO: refit on 100% of train with fixed counts (e.g. mean best epoch of the CV runs),
+    # 2) TODO: out-of-fold predictions -> exact metric -> report mean +- std (and per-slice scores).
+    # 3) TODO: refit on 100% of train with fixed counts (e.g. mean best epoch of the CV runs),
     #    predict each test row independently, decode with the metric-aware rule fitted on OOF only.
     sub = sample.copy()
     # sub[<target column>] = final_test_predictions

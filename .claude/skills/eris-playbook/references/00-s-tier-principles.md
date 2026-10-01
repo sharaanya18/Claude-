@@ -35,6 +35,12 @@ pattern in the source library conflicts with the Deterministic Execution check i
 7. **Engineer for survival**: exact output format, deterministic fixed plan, no whole-test statistics, strip-the-ML
    test passes, clear comments. A rejected or failed run scores zero however good the CV was.
 
+## 1b. Platform reality: score × acceptance
+Payout needs (a) a score above the printed AI baseline, (b) a top private rank or merit share, and (c) surviving the review that happens
+*after* the competition ends (see `platform-facts.md`). So rank candidate approaches by compliance-adjusted value: an approach a reviewer may
+reject (frozen embeddings + tabular head on CV/Fine-tuning tasks, keyword-only ranking, hand rules) is worth less than its CV suggests. Use
+such components as yardsticks or minor members; make the primary a genuinely trained model the domain regime accepts.
+
 ## 2. Effort allocation (expected private gain per hour)
 
 1. Correct contract + exact metric re-implementation + oracle/extreme tests.

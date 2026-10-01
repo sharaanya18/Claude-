@@ -7,7 +7,7 @@ description: Router to the S-tier pattern library for Eris/Shipd challenges. Use
 
 The library distills 13 challenges, 60+ top leaderboard solutions, 6 reviewer rejections and 25 planned unseen challenges.
 It is **hypothesis material, not a recipe**: every item must be validated on grouped CV for the challenge at hand and
-must pass the challenge's own bans. Read `00-s-tier-principles.md` always; then only what the family needs.
+must pass the challenge's own bans. Read `00-s-tier-principles.md` and `platform-facts.md` always; then only what the family needs.
 
 ## Step 1 — classify (a challenge can have more than one family)
 
@@ -27,7 +27,7 @@ must pass the challenge's own bans. Read `00-s-tier-principles.md` always; then 
 
 | Need | File |
 |---|---|
-| Always | `00-s-tier-principles.md` |
+| Always | `00-s-tier-principles.md`, `platform-facts.md` (payout, checks, acceptance regimes by domain) |
 | Loss, decode, thresholds, oracle checks, per-slot calibration | `metric-and-decoding.md` |
 | Split design, groups, nested selection, bias direction, leakage tells | `validation-recipes.md` |
 | Feature ideas by task shape; domain-theory architectures | `features-and-representations.md` |

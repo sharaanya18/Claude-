@@ -28,7 +28,7 @@ pattern id and checked against the bans? Pick primary + fallback + rejected opti
 Agent `eris-validation-architect` → `validate.py`, `reports/split_audit.md` (hidden-split mirror, groups, nested helper, bias direction). Do not model before this exists.
 
 ## Phase 5 — Baseline (`/eris-baseline`)
-Strong, honest, end-to-end baseline from `.claude/scripts/solution_template.py` with placeholder-first writing and in-script validation. Record exact-metric OOF mean ± std and slice scores. Run
+Strong, honest, end-to-end baseline from `.claude/scripts/solution_template.py` with in-script validation and a single validated write at the end. Record exact-metric OOF mean ± std and slice scores. Run
 `/eris-presubmit`'s cheap checks once so the pipeline is proven before optimisation.
 
 ## Phase 6 — Iterate (`/eris-experiment`, `/eris-error-analysis`, `/eris-implement`, `/eris-plateau`)

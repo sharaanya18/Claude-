@@ -27,6 +27,15 @@ Priority order when anything conflicts:
 
 ---
 
+## 1A. How the platform pays and checks (full detail: `.claude/skills/eris-playbook/references/platform-facts.md`)
+
+- **Payout = clear the AI baseline × top private rank (leaderboard $500: 250/150/100; plus a $150 merit pool among baseline-beaters) × survive the review that happens after the competition ends.** Credits are never refunded; a rejected solution forfeits its placement. Choose the best score *among approaches a reviewer will accept* (compliance-adjusted value).
+- The private LB (the remaining part of the test set) decides rankings; public LB is a soft signal. Closing: 24 h countdown after 10 distinct graded solvers, then possibly a short lockdown grace period; have the final solution in early.
+- Four automated pre-submission checks: **CSV Score Validation**, **Prompt Compliance** (code read against the challenge's explicit requirements: required/prohibited methods, training, hardware, models, data sources), **Held-out Answer Ingestion** (never touch private/answer files), **Deterministic Execution** (no wall-clock, fallback, worker, seed or backend logic that changes training or inference). A requirements map in the `solution.py` docstring makes the Prompt Compliance check pass legibly.
+- No placeholder/fallback submissions, no time guards, no hardware or environment branches: they are exactly what the checks flag.
+
+---
+
 ## 2. Rules — what gets a solution rejected
 
 ### 2.1 The prime directive: the model must do the learning
