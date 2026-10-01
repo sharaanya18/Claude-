@@ -57,7 +57,7 @@ VIEWS_SEED = 4              # random ref-renumbering views per seed example
 VIEWS_EI = 2                # views per accepted self-generated target
 VIEWS_EI_LARGE = 4          # ... when the target has >= LARGE_VARS variables (test problems are larger)
 LARGE_VARS = 6
-EPOCHS_S1 = 3
+EPOCHS_S1 = 2
 EPOCHS_S3 = 2
 EPOCHS_S5 = 2
 K_EI = 4                    # samples per unsolved training case per expert-iteration round
@@ -65,7 +65,7 @@ T_EI = 0.8
 TOP_P = 0.95
 MAXNEW_EI = 384
 GEN_PROMPTS_PER_BATCH = 64
-EI_ROUNDS = 2               # 1 = ship the stage-3 model (fallback plan), 2 = full plan
+EI_ROUNDS = 1               # one expert-iteration round (the fallback plan): fits the 90-min budget with headroom
 K_TEST = 8
 T_TEST = 0.7
 MAXNEW_TEST = 768
