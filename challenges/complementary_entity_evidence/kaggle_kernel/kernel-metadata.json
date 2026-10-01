@@ -1,0 +1,15 @@
+{
+  "id": "saisharanyanavoth/complementary-entity-evidence-run",
+  "title": "complementary-entity-evidence-run",
+  "code_file": "main.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [
+    "saisharanyanavoth/nlpdata"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}
