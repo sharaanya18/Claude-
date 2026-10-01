@@ -63,8 +63,8 @@ EPOCHS_S5 = 2
 K_EI = 4                    # samples per unsolved training case per expert-iteration round
 T_EI = 0.8
 TOP_P = 0.95
-MAXNEW_EI = 512
-GEN_PROMPTS_PER_BATCH = 48
+MAXNEW_EI = 384
+GEN_PROMPTS_PER_BATCH = 64
 EI_ROUNDS = 2               # 1 = ship the stage-3 model (fallback plan), 2 = full plan
 K_TEST = 8
 T_TEST = 0.7
@@ -583,7 +583,9 @@ def train_from_base(examples, epochs, tok, tag):
     model.eval()
     model.config.use_cache = True
     model.gradient_checkpointing_disable()
-    return model
+    # fp32 master weights are only needed for the optimiser; generation and scoring run on a low-precision copy so the
+    # weights are not re-cast at every decoding step (several times faster)
+    return model.to({"bf16": torch.bfloat16, "fp16": torch.float16}.get(AMP, torch.float32))
 
 
 @torch.no_grad()

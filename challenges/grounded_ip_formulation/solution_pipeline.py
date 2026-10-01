@@ -177,7 +177,9 @@ def train_from_base(examples, epochs, tok, tag):
     model.eval()
     model.config.use_cache = True
     model.gradient_checkpointing_disable()
-    return model
+    # fp32 master weights are only needed for the optimiser; generation and scoring run on a low-precision copy so the
+    # weights are not re-cast at every decoding step (several times faster)
+    return model.to({"bf16": torch.bfloat16, "fp16": torch.float16}.get(AMP, torch.float32))
 
 
 @torch.no_grad()
