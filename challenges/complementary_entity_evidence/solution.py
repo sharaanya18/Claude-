@@ -43,6 +43,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 os.environ["HF_HOME"] = str(WORK_DIR / "hf_cache")
 
+import contextlib
+
 import numpy as np
 import pandas as pd
 import torch
@@ -53,6 +55,7 @@ from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warm
 MODEL_NAME = "microsoft/deberta-v3-large"
 MODEL_REVISION = "main"         # DEV NOTE: pin to an exact commit sha before the final submission
 DEVICE = "cuda"
+AMP = "bf16"                    # "bf16" on the A10G; dev runs on Kaggle T4/P100 (no bf16) override it to "off" (fp32)
 SEED = 42
 N_FOLDS = 5
 MAX_EPOCHS = 4                  # the LR schedule is defined for MAX_EPOCHS; the final refit trains the CV-chosen epoch count
@@ -68,6 +71,10 @@ T0 = time.time()                # LOGGING ONLY
 
 def log(msg):
     print(f"[{time.time() - T0:7.0f}s] {msg}", flush=True)
+
+
+def amp_ctx():
+    return torch.autocast("cuda", dtype=torch.bfloat16) if AMP == "bf16" else contextlib.nullcontext()
 
 
 def seed_everything(seed):
@@ -238,7 +245,7 @@ def predict_logits(model, tok, texts):
     out = np.zeros((len(texts), model.head.out_features), np.float32)
     order = sorted(range(len(texts)), key=lambda i: len(texts[i]))        # length-sorted for speed; output realigned
     for sel, ids, am in batches([texts[i] for i in order], tok, 64, False, 0):
-        with torch.autocast("cuda", dtype=torch.bfloat16):
+        with amp_ctx():
             lg = model(ids, am)
         for k, j in enumerate(sel):
             out[order[j]] = lg[k].float().cpu().numpy()
@@ -260,7 +267,7 @@ def train_model(examples, n_roles, tok, epochs, seed, eval_hook=None):
         tot, cnt = 0.0, 0
         for sel, ids, am in batches(texts, tok, BATCH_SIZE, True, seed * 1000 + ep):
             y, m = Y[sel].to(DEVICE), M[sel].to(DEVICE)
-            with torch.autocast("cuda", dtype=torch.bfloat16):
+            with amp_ctx():
                 lg = model(ids, am)
             loss = (nn.functional.binary_cross_entropy_with_logits(lg.float(), y, reduction="none") * m).sum() / m.sum().clamp(min=1)
             loss.backward()
@@ -398,6 +405,7 @@ def main():
         torch.cuda.empty_cache()
     probs = 1.0 / (1.0 + np.exp(-logits / T_final))
     pred = {}
+    # slate = the decision unit: each slate is decoded from ITS OWN candidates only (no statistic is pooled across slates)
     for sid, g in te.groupby("slate", sort=True):
         ids = list(g["id"])
         rows = [te_index[(r.candidate_text, int(r.anchor_start), int(r.anchor_end), r.anchor_type)] for r in g.itertuples(index=False)]

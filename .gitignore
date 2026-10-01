@@ -7,3 +7,6 @@ challenges/toy_support/
 
 # competitor/raw solutions supplied to /eris-learn stay local; digests are committed
 corpus/*/solutions/
+challenges/*/kaggle_kernel/
+challenges/*/kaggle_out/
+challenges/*/kaggle_data/

@@ -49,25 +49,24 @@ def write_meta(ch, script, args, user, dataset=None):
     kdir = ch / "kaggle_kernel"
     shutil.rmtree(kdir, ignore_errors=True)
     kdir.mkdir()
-    shutil.copy(ch / script, kdir / script)
-    for extra in ("solution.py", "metric.py"):
-        if (ch / extra).exists() and extra != script:
-            shutil.copy(ch / extra, kdir / extra)
+    # Kaggle script kernels upload only the code file, so the helper files are embedded as string literals and written out at run time.
     wrapper = kdir / "main.py"
-    argstr = " ".join(args)
-    # locate the folder holding train.csv anywhere under /kaggle/input (the mount layout and zip nesting differ between uploads)
-    find = ('import glob\nhits = sorted(glob.glob("/kaggle/input/**/train.csv", recursive=True))\n'
+    embedded = [script] + [e for e in ("solution.py", "metric.py") if (ch / e).exists() and e != script]
+    pre = "import os, shutil, subprocess, sys, glob\n"
+    for name in embedded:
+        pre += f"open({name!r}, 'w', encoding='utf-8').write({(ch / name).read_text(encoding='utf-8')!r})\n"
+    find = ('hits = sorted(glob.glob("/kaggle/input/**/train.csv", recursive=True))\n'
             'assert hits, "train.csv not found under /kaggle/input"\nPUB = os.path.dirname(hits[0])\nprint("data dir:", PUB)\n')
     if script == "solution.py":
-        cmd = 'subprocess.check_call([sys.executable, "solution.py", PUB, "/kaggle/working/submission.csv"])'
+        cmd = 'subprocess.check_call([sys.executable, "solution.py", PUB, "/kaggle/working/submission.csv"])\n'
     else:
         cmd = ('os.makedirs("dataset", exist_ok=True)\n'
                'shutil.copytree(PUB, "dataset/public", dirs_exist_ok=True)\n'
-               f'subprocess.check_call([sys.executable, "{script}"] + {args!r})')
-    wrapper.write_text("import os, shutil, subprocess, sys\n" + find + cmd + "\n"
-                       "for d in ('reports', 'working'):\n"
-                       "    if os.path.isdir(d):\n"
-                       "        shutil.copytree(d, '/kaggle/working/' + d, dirs_exist_ok=True)\n")
+               f'subprocess.check_call([sys.executable, "{script}"] + {args!r})\n')
+    post = ("for d in ('reports', 'working'):\n"
+            "    if os.path.isdir(d):\n"
+            "        shutil.copytree(d, '/kaggle/working/' + d, dirs_exist_ok=True)\n")
+    wrapper.write_text(pre + find + cmd + post)
     (kdir / "kernel-metadata.json").write_text(json.dumps({
         "id": f"{user}/{kn}", "title": kn, "code_file": "main.py", "language": "python", "kernel_type": "script",
         "is_private": True, "enable_gpu": True, "enable_internet": True,
