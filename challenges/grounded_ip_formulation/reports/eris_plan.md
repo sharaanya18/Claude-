@@ -547,3 +547,8 @@ Credits: baseline (step 2 shipped as a valid end-to-end script), best single (af
 
 **Could not verify:** any GPU runtime, fp16 stability of Qwen2.5-0.5B, EI acceptance yield and precision, the grader's
 exact S matcher and solver options, and HF download speed on the grading host.
+
+## Grey-area policy (user instruction, 2026-10-01: do not use grey-area approaches overly)
+- Shipped: general open-weight base LM fine-tuned on supplied data; train-side rejection sampling against optimal_value (the intended weak supervision); inline reference annotation of INPUTS; reference renumbering augmentation of real cases; choosing among the model's own samples for the same case by solver validity + optimum agreement + log-probability.
+- Not used and not to be added without a reviewer answer: test-time perturbation voting, grammar-constrained decoding, any rule that inspects or edits output text at test time (the typed-literal preference was removed from the test-time selector), keyword routing by problem family, hand-cleaning of seeds, canonical renumbering with an inverse map.
+- Train-side typed-literal filter (EI targets only) and perturbation-finiteness filter touch training cases only.

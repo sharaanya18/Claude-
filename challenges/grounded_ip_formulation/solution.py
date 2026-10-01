@@ -719,22 +719,20 @@ def n_variables(text, numbers):
 
 # ================================================================== test-time selection among the model's own samples
 def select_candidate(cands, numbers, logps):
-    """Pick one of a case's own candidates. Candidates that parse and have a finite optimum are preferred; among them
-    those that type in no numbers other than 0/1/100; then the candidate whose optimum most of the other valid
-    candidates agree with (minimum-Bayes-risk vote); ties go to the higher mean log-probability. If nothing is valid the
-    greedy output (index 0) is submitted verbatim."""
+    """Pick one of a case's own candidates (choosing among the model's outputs for the same case). Candidates that parse
+    and have a finite optimum are eligible; among them pick the one whose optimum most of the other eligible candidates
+    agree with (a vote among the model's own samples); ties go to the higher mean log-probability. No rule inspects or
+    edits the text. If nothing is eligible the greedy output (index 0) is submitted verbatim."""
     infos = []
     for i, text in enumerate(cands):
         a = analyze(text, numbers)
         if a["parsed"] and a["optimum"] is not None:
-            infos.append((i, a["optimum"], typed_literals_ok(text)))
+            infos.append((i, a["optimum"]))
     if not infos:
         return 0, "no_valid"
-    clean = [t for t in infos if t[2]]
-    pool = clean if clean else infos
     best, best_key = None, None
-    for i, opt, _ in pool:
-        agree = sum(1 for j, o2, _ in infos if j != i and rel_close(opt, o2, 1e-4))
+    for i, opt in infos:
+        agree = sum(1 for j, o2 in infos if j != i and rel_close(opt, o2, 1e-4))
         key = (agree, logps[i], -i)
         if best_key is None or key > best_key:
             best, best_key = i, key
