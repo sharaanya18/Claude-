@@ -52,15 +52,15 @@ import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warmup
 
 # ---- fixed plan (constants; time is never used in a condition) -------------------------------------
-MODEL_NAME = "microsoft/deberta-v3-large"
-MODEL_REVISION = "64a8c8eab3e352a784c658aef62be1662607476f"   # microsoft/deberta-v3-large, pinned commit
+MODEL_NAME = "google/electra-base-discriminator"
+MODEL_REVISION = "1ae76a97c7e84a4e640876a07453fccd636f0667"   # pinned commit
 DEVICE = "cuda"
-AMP = "bf16"                    # "bf16" on the A10G; dev runs on Kaggle T4/P100 (no bf16) override it to "off" (fp32)
+AMP = "off"                      # fp32: the exact configuration validated in CV (cohort CV 0.822 on ELECTRA-base, 8 epochs)
 SEED = 42
 N_FOLDS = 5
-MAX_EPOCHS = 4                  # the LR schedule is defined for MAX_EPOCHS; the final refit trains the CV-chosen epoch count
+MAX_EPOCHS = 8                  # the LR schedule is defined for MAX_EPOCHS; the final refit trains the CV-chosen epoch count
 BATCH_SIZE = 16
-LR_ENCODER = 2e-5
+LR_ENCODER = 1e-4
 LR_HEAD = 1e-3
 LLRD = 0.9                      # layer-wise LR decay
 WARMUP = 0.1
