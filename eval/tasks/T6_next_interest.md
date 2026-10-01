@@ -1,0 +1,6 @@
+# Task T6 — Cross-community next-interest recommendation (paraphrased description)
+
+Each case is one anonymised user: an ordered tag-adoption history (community, tag, rel_month, n_events; capped at 30 events) across 6 anonymous expert communities, plus 8 candidate tags, exactly one of which is the user's next adoption. The other 7 are ENGINEERED decoys: 3 matched to the answer on a co-occurrence score, 2 popular in the answer's community, 2 weak global fillers. The decoy recipe is published in the description. 1,666 train cases, 416 test cases, disjoint users.
+
+Metric: 0.8 * chance-normalised MRR@3 + 0.2 * the worst of the 6 answer-communities' score (answer community hidden in test). Submit `id, rank1, rank2, rank3`.
+Rules: CPU-only runner, ~1.5 h; train in-script; no external data. Tag aliases are consistent across all files, so co-occurrence structure is learnable across cases. The platform bans test-set adaptation: any statistic, vocabulary or association fitted on test rows' own features (even without labels), pseudo-labelling, training on synthetic generated data, and test-calibration. Platform reviewers also reject hand-derived exploitation of how the data was generated when the model does not learn it.
