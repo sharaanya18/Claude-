@@ -139,3 +139,25 @@ class ScannerFalsePositive(unittest.TestCase):
         r = run(S / "compliance_scan.py", f, "--json")
         rules = {x["rule"] for x in json.loads(r.stdout)}
         self.assertNotIn("test-fit", rules)
+
+
+class Corpus(unittest.TestCase):
+    def test_blind_first_protocol(self):
+        import shutil, time
+        root = S.parent.parent / "corpus"
+        slug = "unittest_tmp"
+        shutil.rmtree(root / slug, ignore_errors=True)
+        try:
+            self.assertEqual(run(S / "corpus.py", "new", slug).returncode, 0)
+            self.assertEqual(run(S / "corpus.py", "check", slug).returncode, 1)       # no blind plan yet
+            (root / slug / "blind" / "eris_plan.md").write_text("plan")
+            time.sleep(0.05)
+            (root / slug / "digests" / "rank1.md").write_text("digest")
+            self.assertEqual(run(S / "corpus.py", "check", slug).returncode, 0)
+            time.sleep(0.05)
+            (root / slug / "blind" / "eris_plan.md").write_text("rewritten later")    # blind plan newer than digest: protocol broken
+            self.assertEqual(run(S / "corpus.py", "check", slug).returncode, 1)
+        finally:
+            shutil.rmtree(root / slug, ignore_errors=True)
+            if root.exists() and not any(root.iterdir()):
+                root.rmdir()

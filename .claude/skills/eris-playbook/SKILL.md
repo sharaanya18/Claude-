@@ -33,6 +33,7 @@ must pass the challenge's own bans. Read `00-s-tier-principles.md` and `platform
 | Feature ideas by task shape; domain-theory architectures | `features-and-representations.md` |
 | Ensembling, pretrained usage, training recipes, efficiency | `ensembling-and-training.md` |
 | Determinism, I/O contract, what reviewers reject, self-audit | `engineering-and-compliance.md` |
+| Newest levers distilled from user-supplied top solutions (not yet promoted) | `learned-patterns.md` (written by `/eris-learn`) |
 
 ## Step 3 — use them
 

@@ -4,3 +4,6 @@ challenges/*/working/
 __pycache__/
 *.pyc
 challenges/toy_support/
+
+# competitor/raw solutions supplied to /eris-learn stay local; digests are committed
+corpus/*/solutions/
