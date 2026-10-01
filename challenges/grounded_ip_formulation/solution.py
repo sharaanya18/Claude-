@@ -34,6 +34,7 @@ WORK_DIR.mkdir(parents=True, exist_ok=True)
 os.environ["PYTHONHASHSEED"] = "0"
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["HF_HOME"] = str(WORK_DIR / "hf_cache")
 
 import numpy as np
@@ -50,8 +51,8 @@ AMP = "bf16"                 # "bf16" on the A10G; dev runs on older GPUs may se
 MAX_LEN = 1280               # prompt + target tokens (asserted: nothing is truncated)
 LR = 5e-5
 WARMUP_FRAC = 0.03
-MICRO_BS = 8
-ACCUM = 2
+MICRO_BS = 4
+ACCUM = 4
 VIEWS_SEED = 4              # random ref-renumbering views per seed example
 VIEWS_EI = 2                # views per accepted self-generated target
 VIEWS_EI_LARGE = 4          # ... when the target has >= LARGE_VARS variables (test problems are larger)
