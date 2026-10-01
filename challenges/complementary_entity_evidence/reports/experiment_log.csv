@@ -1,0 +1,4 @@
+exp_id,hypothesis,change,cv_mean,notes
+es_e8,small encoder learns role tagging from text,"electra-small, 5 cohort folds, 8 epochs, lr 2e-4, CPU; expected-union decode, T=1",0.7641 (epoch 7; epoch 8 0.7631),"random pair 0.513; per-epoch 0.580,0.538,0.668,0.719,0.744,0.759,0.764,0.763; OOF in reports/oof/es_e8.npz; unverified on private; single split seed"
+es_e8_decode,redundancy-aware decode beats pointwise top-2,same OOF; decode variants,union 0.7641 vs pointwise 0.7324,"paired gain +0.0316, SE 0.0059 over 772 slates (84 better, 31 worse); not nested (no fitted constants in the decode)"
+es_e8_mask,hard-masking known roles helps,same OOF; decode with/without known mask,with 0.7641 vs without 0.7171,"paired gain +0.047, SE 0.0063; mask is structural (new ∩ known = ∅ verified on all train rows)"
