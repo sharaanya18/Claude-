@@ -71,7 +71,7 @@ parameters (HPO must run in the script), self-hosted weights, sharing solutions 
 5. **No whole-test statistics, no test-fit anything**, per-row predictions from a frozen train-fit model; the half-the-rows test must pass.
 6. **Legibility is score**: a clear requirements map, comments on every fit/predict, small readable functions; reviewers and the compliance model
    read the code. Do not exploit generator structure by hand; make the model learn it.
-7. **Credit economy**: validate locally to exhaustion (compliance scan, run twice, validator, free CSV check), then spend credits on
+7. **Credit economy**: validate locally to exhaustion (compliance scan, run twice, validator; the platform has NO free CSV probe: each check is a full credit-costing submission), then spend credits on
    baseline → improved → best; never submit tweaks that CV cannot resolve.
 8. **Rubric view of "good"** (task rubrics cover data handling, modelling, feature engineering, training/validation without leakage, code
    quality, communication): handle the stated imbalance/missingness, validate on a holdout/CV that avoids leakage, justify choices in comments.

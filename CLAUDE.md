@@ -23,7 +23,7 @@ Priority order when anything conflicts:
 | Source file | Plain UTF-8, human-readable, **< 512,000 bytes**. No base64/zlib blobs, no embedded weights, no code generated at runtime, no `exec`/`eval` tricks. Opaque code fails the compliance checker ("source cannot be inspected"). |
 | Libraries | Only what is in the Kaggle Docker image (core stack: numpy, pandas, scikit-learn, xgboost, lightgbm, catboost, torch, torchvision, transformers, timm, tensorflow/keras, optuna, etc.; see §8). Anything else → ask a reviewer first. |
 | Internet | Allowed **only** to download pretrained backbone weights from Hugging Face / timm (`from_pretrained`, `timm.create_model(pretrained=True)`). **Never** GitHub or other sources, never `pip install`. |
-| Credits | 6 per problem (+1 per 4 h) and a global ~15–25/day (each refunds 24 h after use). A failed script run still burns the credit, so **validate locally first**. The local "upload CSV" check is free but does not count for the leaderboard. |
+| Credits | 6 per problem (+1 per 4 h) and a global ~15–25/day (each refunds 24 h after use). A failed script run still burns the credit, so **validate locally first**. On this platform a submission uploads BOTH `solution.py` and `submission.csv`, the pre-submission checks run, and it costs one credit: there is NO free probe of the public score, so budget credits as experiments and do all validation locally. |
 
 ---
 
@@ -143,7 +143,7 @@ The public LB is a small, noisy slice of test; the private LB decides prizes and
 **Experiment discipline**
 - One change per experiment; log each in a table (id, change, CV mean±std, per-fold, est. runtime, public LB if submitted, notes). Never compare scores from different CV splits.
 - Order of work by expected private gain per hour: (1) correct validation + metric → (2) strong baseline GBDT/pretrained model → (3) key features/representation → (4) loss/target/augmentation fit to the metric → (5) model diversity → (6) seeds/folds ensemble → (7) HPO → (8) micro post-processing. Do not start (7)–(8) before (1)–(4) are solid.
-- Use submissions strategically: baseline (valid pipeline) → best single model → ensemble → final. Don't burn credits on tiny tweaks; the free CSV check can compare candidates against the public LB with no credit.
+- Use submissions strategically: baseline (valid pipeline) → best single model → ensemble → final. Don't burn credits on tiny tweaks; every public-score check costs a credit, so decide between candidates with local CV and use a credit only for a version that CV says is better.
 - Final run must reproduce the best CV config **from scratch in one command** with the fixed plan; verify the produced CSV's distribution looks like the OOF predictions (mean/std/class balance), as a bug-catching sanity check, not tuning.
 
 **Robustness checks before the final submit**

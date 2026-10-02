@@ -51,3 +51,6 @@ before row-level splits; compare against the exact-uniform-guess score and the b
 Independent per-slot argmax violating distinctness; train-time exploits of a verified constraint that is not
 guaranteed on test; huge state spaces enumerated without incidence matrices; hard assignment where the metric rewards
 calibrated marginals; ignoring the "none"/abstain case; unvalidated reduction that drops legal answers.
+
+## Added from AnchorPerm (row-local few-shot matching with a regime shift)
+Compute the Monte-Carlo information ceiling first (learned-patterns L001); build a loss over the hidden block only with anchors as inputs and a fresh random anchor subset each epoch; normalise per row and per role; add per-row reliability (anchor agreement) and calibrate confidence on out-of-fold predictions of clean and simulated-shift copies (L002). Do not expect row-local tricks to recover a changed mapping (L003).

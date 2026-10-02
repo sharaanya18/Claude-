@@ -40,7 +40,7 @@ representation → (4) loss/decode/augmentation to the metric and physics → (5
 Fixed counts from CV (mean best epoch × 1.1), refit on 100%, determinism check, profile runtime. Then `/eris-review` (compliance + runtime + red-team in parallel).
 
 ## Phase 8 — Presubmit and submission (`/eris-presubmit`, `/eris-postsubmit`)
-Free CSV check before spending a credit; submit the script; log the CV vs public gap; do not chase the public number.
+No free platform probe exists (each check costs a credit): decide locally, then submit the script; log the CV vs public gap; do not chase the public number.
 
 ## Phase 9 — Close (`/eris-close`, `/eris-pattern`)
 Write the lessons that would have changed a decision; add transferable patterns to the library.
