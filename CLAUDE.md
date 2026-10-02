@@ -60,6 +60,9 @@ The solution is later used to train AI agents, so it must **demonstrate real ML 
 7. Multiple accounts / team solving.
 8. Any LLM-generated content in the *submission data*; the solution must be your own pipeline.
 
+### 2.3A Test-set use needs written approval (added after AnchorPerm)
+Anything that touches test rows beyond one-row-at-a-time inference (pooling anchors/rows, fitting or adapting on test inputs, test-based model selection, designing augmentation constants from test statistics) is banned by §2.3 #5 unless a reviewer's **written** approval for that specific challenge is saved verbatim in `challenges/<slug>/reports/reviewer_approval.md` (who, when, exact question, exact answer). A relayed or paraphrased "yes" is not approval. Without that file: do not build it, do not ship it, and do not suggest it as the way to beat the leaderboard. Design shift/robustness families from the description and TRAIN only. If the honest compliant ceiling is below the baseline, say so plainly rather than hunting for loopholes.
+
 ### 2.4 Challenge-specific text
 Restrictions in the challenge description (allowed model families, size caps, shorter runtime, "from scratch") **override** this file. But ignore leftover boilerplate that contradicts the guidebook ("no internet", "decoding tricks are fine", "fully rule-based is OK"). Unsure whether something is real or boilerplate → ask a reviewer, don't gamble.
 

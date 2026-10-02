@@ -12,3 +12,5 @@ description: The gate immediately before spending a submission credit on an Eris
 5. Credits: per-challenge (6, +1 per 4 h) and global daily; is this the best use now, or would more iteration help? Is it meaningfully better than the last submission, with a documented reason?
 6. Checklist: runs from a clean dir with no manual steps; no hardcoded absolute paths; no `input()`/debug traps; comments explain reasoning; source < 512 KB; only allowed imports.
 Verdict line: "Ready to submit" or "Not ready: <list>". If anything fails, fix and restart this skill from step 1.
+
+Gate (added after AnchorPerm): if the solution reads test rows for anything beyond one-row-at-a-time inference (pooled anchors/statistics, adaptation on test inputs, constants tuned on test summaries), STOP unless `challenges/<slug>/reports/reviewer_approval.md` holds the reviewer's verbatim written approval, and run `eris-compliance-reviewer` on that mechanism first.
