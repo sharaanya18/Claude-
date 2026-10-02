@@ -144,13 +144,15 @@ def sample_anchors(rows_n, gen):
     return am
 
 
-def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0):
+def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0, noise_min=0.0, requant=False):
     """Training-only robustness augmentation: per-row Gaussian jitter and optional re-quantisation with a random gain
     (simulates rows whose codes are noisier / spread wider, as in unseen representation regimes)."""
     B = Q.shape[0]
-    s = torch.rand(B, 1, 1, generator=gen) * noise_max
+    s = noise_min + torch.rand(B, 1, 1, generator=gen) * (noise_max - noise_min)
     Q = Q + torch.randn(Q.shape, generator=gen) * s * nm[..., None]
     A = A + torch.randn(A.shape, generator=gen) * s * nm[..., None]
+    if requant and gain_max == 1.0:
+        Q = torch.clamp(torch.round(Q), -2, 2) * nm[..., None]; A = torch.clamp(torch.round(A), -2, 2) * nm[..., None]
     if gain_max > 1.0:
         g = 1.0 + torch.rand(B, 1, 1, generator=gen) * (gain_max - 1.0)
         Q = torch.clamp(torch.round(Q * g), -2, 2) * nm[..., None]
@@ -194,7 +196,7 @@ def decode_row(logit, r):
     return [ha[c] for c in ci], S
 
 
-def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max=1.0, log=print, use_tower=True, ctx_layers=0, drop=0.0, wd=1e-2):
+def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max=1.0, log=print, use_tower=True, ctx_layers=0, drop=0.0, wd=1e-2, noise_min=0.0, requant=False):
     gen = torch.Generator().manual_seed(seed)
     torch.manual_seed(seed)
     model = PairScorer(use_tower=use_tower, ctx_layers=ctx_layers, drop=drop)
@@ -207,7 +209,7 @@ def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max
         model.train(); order = torch.randperm(len(rows), generator=gen); tot = 0.0
         for s in range(0, len(rows), bs):
             ix = order[s:s + bs]
-            Q, A = augment(Q0[ix], A0[ix], nm0[ix], gen, noise_max, gain_max)
+            Q, A = augment(Q0[ix], A0[ix], nm0[ix], gen, noise_max, gain_max, noise_min, requant)
             am = sample_anchors([ns[i] for i in ix.tolist()], gen)
             logits = model(Q, A, nm0[ix], am, pi0[ix])
             loss = listwise_loss(logits, nm0[ix], am, pi0[ix])
