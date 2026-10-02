@@ -1,18 +1,3 @@
-"""Solver for AnchorPerm: few-shot scientific correspondence completion (row-local bipartite matching + confidence).
-
-Requirements map (challenge rules -> where satisfied)
-  * Public-data model training only: a pair-scoring neural network is trained in this script on train.csv (random anchor
-    subsets re-drawn every epoch = training-only robustness augmentation; per-row code jitter / re-quantisation augmentation).
-  * Row-local anchor conditioning: the revealed anchors of a row enter the scorer as structure features (how similar a
-    question is to the anchored questions vs. how similar an answer is to the anchored answers).
-  * Coherent one-to-one decoding: Hungarian assignment on the symmetric log-probability score of the hidden block.
-  * Confidence: a gradient-boosted regressor maps row diagnostics (assignment margins, probabilities, ensemble
-    disagreement, set size, anchor count, the row's own code spread) to expected row accuracy; it is trained on
-    out-of-fold predictions of train rows (clean and augmented copies) only.
-  * No test-set fitting: every transformer/normaliser is row-local; test rows are only predicted one row at a time.
-    No example_id / row-order channel, no lookup tables, no external data or weights.
-  * Fixed work plan (folds, seeds, epochs are constants); elapsed time is only logged; CPU is a fixed constant device.
-"""
 import os
 import sys
 import random
@@ -37,15 +22,15 @@ from sklearn.model_selection import KFold
 
 SEED = 42
 N_FOLDS = 5
-N_SEEDS = 5                 # models per fold / final ensemble members
+N_SEEDS = 5
 EPOCHS = 40
 BATCH = 64
 LR = 2e-3
-NOISE_MAX = 0.6             # training augmentation: per-row jitter
-GAIN_MAX = 1.6              # training augmentation: per-row re-quantisation gain
-ROT_PROB = 0.0              # fraction of training rows whose Q / A coordinate frames are randomly rotated (mapping-shift robustness)
-STRESS_COPIES = 3           # augmented copies of every OOF row used to fit the confidence calibrator
-T0 = time.time()            # LOGGING ONLY
+NOISE_MAX = 0.6
+GAIN_MAX = 1.6
+ROT_PROB = 0.0
+STRESS_COPIES = 3
+T0 = time.time()
 
 
 def log(msg):
@@ -88,7 +73,7 @@ def load_rows(df):
             d["y"] = [ak.index(t) for t in r.target_sequence.split()]
             pi = dict(d["anc"])
             pi.update(zip(d["hq"], d["y"]))
-            d["pi"] = np.array([pi[i] for i in range(len(qk))])        # full true matching question -> answer
+            d["pi"] = np.array([pi[i] for i in range(len(qk))])
         rows.append(d)
     return rows
 
@@ -99,13 +84,12 @@ def pad_rows(rows):
     nm = np.zeros((B, N_MAX), bool); pi = np.zeros((B, N_MAX), np.int64)
     for b, r in enumerate(rows):
         n = r["n"]; Q[b, :n] = r["Q"]; A[b, :n] = r["A"]; nm[b, :n] = True
-        pi[b] = torch.arange(N_MAX).numpy()          # padded slots map to themselves so pi stays a permutation
+        pi[b] = torch.arange(N_MAX).numpy()
         if "pi" in r: pi[b, :n] = r["pi"]
     return torch.tensor(Q), torch.tensor(A), torch.tensor(nm), torch.tensor(pi)
 
 
 def normalise(X, nm):
-    """Row-local, role-local normalisation: centre every coordinate over the row's items, divide by the row's overall spread."""
     m = nm[..., None].float()
     cnt = m.sum(1, keepdim=True)
     mu = (X * m).sum(1, keepdim=True) / cnt
@@ -144,8 +128,6 @@ class PairScorer(nn.Module):
         self.head = nn.Sequential(nn.Linear(1 + 4 + 2 + 1, hid), nn.GELU(), nn.Linear(hid, hid), nn.GELU(), nn.Linear(hid, 1))
 
     def forward(self, Q, A, nm, am, pi):
-        """Q,A raw codes (B,N,32); nm valid mask (B,N); am anchored-question mask (B,N); pi true matching (B,N) (used only
-        to read the anchored pairs, which are inputs). Returns logits (B,N,N) for [question i, answer j]."""
         B, N, _ = Q.shape
         Qn, An = normalise(Q, nm), normalise(A, nm)
         eq, ea = self.fq(Qn), self.fa(An)
@@ -157,30 +139,28 @@ class PairScorer(nn.Module):
             s1 = s1 + self.rh(pf)[..., 0]
         if not self.use_tower: s1 = s1 * 0
         Zq, Za = zscore_sim(cos_matrix(Qn), nm), zscore_sim(cos_matrix(An), nm)
-        # anchors: up to K_MAX anchored questions per row (am) and their answers pi[am]
         idx = torch.arange(N)[None].expand(B, N)
         key = torch.where(am, idx, torch.full_like(idx, N + 1))
-        aq = key.sort(1).values[:, :K_MAX]                          # anchored question indices, padded with N+1
-        km = aq <= N - 1                                             # (B,K)
+        aq = key.sort(1).values[:, :K_MAX]
+        km = aq <= N - 1
         aq_c = aq.clamp(max=N - 1)
-        aa = pi.gather(1, aq_c)                                      # their answers
-        zq = Zq.gather(2, aq_c[:, None, :].expand(B, N, K_MAX))      # (B,N,K): similarity of every question to anchored q_k
-        za = Za.gather(2, aa[:, None, :].expand(B, N, K_MAX))        # (B,N,K): similarity of every answer to anchored a_k
-        kf = km.float()[:, None, :]                                  # (B,1,K)
-        kc = kf.sum(-1, keepdim=True).clamp_min(1)                   # (B,1,1)
+        aa = pi.gather(1, aq_c)
+        zq = Zq.gather(2, aq_c[:, None, :].expand(B, N, K_MAX))
+        za = Za.gather(2, aa[:, None, :].expand(B, N, K_MAX))
+        kf = km.float()[:, None, :]
+        kc = kf.sum(-1, keepdim=True).clamp_min(1)
         prod = torch.einsum("bik,bjk->bij", zq * kf, za) / kc
-        diff = (zq[:, :, None, :] - za[:, None, :, :])               # (B,N,N,K)
+        diff = (zq[:, :, None, :] - za[:, None, :, :])
         absd = (diff.abs() * kf[:, :, None, :]).sum(-1) / kc
         sq = (diff ** 2 * kf[:, :, None, :]).sum(-1) / kc
         mx = (diff.abs() * kf[:, :, None, :] + (1 - kf[:, :, None, :]) * -1).amax(-1)
-        # reliability of the cross-role tower on THIS row: how well it ranks the row's own anchors (anchored pair z-score in its row)
         s1m = s1.masked_fill(~nm[:, None, :], 0.0)
         cntA = nm.float().sum(1)[:, None, None].clamp_min(1)
         mu = s1m.sum(2, keepdim=True) / cntA
         sd = ((((s1 - mu) ** 2) * nm[:, None, :].float()).sum(2, keepdim=True).div(cntA) + 1e-6).sqrt()
-        zrow = ((s1 - mu) / sd)                                              # (B,N,N) z-score of each answer within its question's row
-        ztrue = zrow.gather(2, pi[:, :, None])[..., 0]                         # (B,N) z-score of the true answer for each question
-        zanch = (ztrue * am.float()).sum(1) / am.float().sum(1).clamp_min(1)   # mean over anchored questions
+        zrow = ((s1 - mu) / sd)
+        ztrue = zrow.gather(2, pi[:, :, None])[..., 0]
+        zanch = (ztrue * am.float()).sum(1) / am.float().sum(1).clamp_min(1)
         rel = zanch[:, None, None].expand(B, N, N)
         ctx = torch.stack([nm.float().sum(1) / 12.0, am.float().sum(1) / 5.0], -1)[:, None, None, :].expand(B, N, N, 2)
         f = torch.cat([s1[..., None], prod[..., None], absd[..., None], sq[..., None], mx[..., None], ctx, rel[..., None]], -1)
@@ -188,10 +168,9 @@ class PairScorer(nn.Module):
 
 
 def listwise_loss(logits, nm, am, pi):
-    """CE of the true answer among the hidden answers for each hidden question, plus the column direction."""
     B, N, _ = logits.shape
     inv = torch.zeros_like(pi); inv.scatter_(1, pi, torch.arange(N)[None].expand(B, N))
-    aa_mask = torch.zeros(B, N).scatter_add_(1, pi, am.float()) > 0   # answers consumed by anchors
+    aa_mask = torch.zeros(B, N).scatter_add_(1, pi, am.float()) > 0
     hq = nm & ~am
     ha = nm & ~aa_mask
     big = -1e9
@@ -199,14 +178,12 @@ def listwise_loss(logits, nm, am, pi):
     lc = logits.masked_fill(~hq[:, :, None], big)
     ce_r = F.cross_entropy(lr.reshape(B * N, N), pi.reshape(-1), reduction="none").view(B, N)
     ce_c = F.cross_entropy(lc.transpose(1, 2).reshape(B * N, N), inv.reshape(-1), reduction="none").view(B, N)
-    # column j is a hidden answer; its true question is inv[j]
     loss_r = (ce_r * hq).sum() / hq.sum()
     loss_c = (ce_c * ha).sum() / ha.sum()
     return 0.5 * (loss_r + loss_c)
 
 
 def sample_anchors(rows_n, gen):
-    """Random anchor subset size k in 2..min(5,n-5) per row."""
     B = len(rows_n)
     am = torch.zeros(B, N_MAX, dtype=torch.bool)
     for b, n in enumerate(rows_n):
@@ -216,8 +193,6 @@ def sample_anchors(rows_n, gen):
 
 
 def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0, noise_min=0.0, requant=False, rot_prob=0.0):
-    """Training-only robustness augmentation: per-row Gaussian jitter and optional re-quantisation with a random gain
-    (simulates rows whose codes are noisier / spread wider, as in unseen representation regimes)."""
     B = Q.shape[0]
     s = noise_min + torch.rand(B, 1, 1, generator=gen) * (noise_max - noise_min)
     Q = Q + torch.randn(Q.shape, generator=gen) * s * nm[..., None]
@@ -246,7 +221,6 @@ def anchor_mask_from_rows(rows):
 
 
 def anchored_pi(rows, pi_true=None):
-    """pi tensor where only the anchored questions carry their true answer (others arbitrary): used for test rows."""
     pi = torch.zeros(len(rows), N_MAX, dtype=torch.long)
     for b, r in enumerate(rows):
         for q, a in r["anc"]: pi[b, q] = a
@@ -264,7 +238,6 @@ def predict_logits(model, rows, bs=256):
 
 
 def decode_row(logit, r):
-    """Hungarian on the symmetric log-prob score over the hidden block. Returns (answer indices in hidden-question order, score matrix)."""
     hq, ha = r["hq"], r["ha"]
     L = logit[np.ix_(hq, ha)]
     lr = L - np.logaddexp.reduce(L, axis=1, keepdims=True)
@@ -274,11 +247,7 @@ def decode_row(logit, r):
     return [ha[c] for c in ci], S
 
 
-
-
 def train_model(rows, seed, epochs=EPOCHS, bs=BATCH, lr=LR):
-    """Train one pair scorer. Every epoch re-draws a random anchor subset (2..min(5, n-5)) per row and jitters / re-quantises
-    the codes, so the network cannot memorise a fixed anchor pattern or one code scale."""
     gen = torch.Generator().manual_seed(seed)
     torch.manual_seed(seed)
     model = PairScorer()
@@ -300,9 +269,6 @@ def train_model(rows, seed, epochs=EPOCHS, bs=BATCH, lr=LR):
 
 
 def stress_rows(rows, rng, kind):
-    """Augmented copies of held-out TRAIN rows. The confidence calibrator is fitted on these so that prediction diagnostics
-    (margins, anchor agreement, ensemble disagreement, code spread) are linked to realised accuracy under other regimes:
-    kind 0 = random gain + noise re-quantised, kind 1 = additive code noise, kind 2 = partially rotated coordinate frames."""
     from scipy.linalg import expm
     out = []
     for r in rows:
@@ -328,7 +294,6 @@ def best_total(S):
 
 
 def row_features(member_logits, r):
-    """Diagnostics of one row's ensemble prediction. Returns (answer indices, feature vector)."""
     hq, ha = r["hq"], r["ha"]
     mean_logit = np.mean(member_logits, axis=0)
     pred, S = decode_row(mean_logit, r)
@@ -340,7 +305,7 @@ def row_features(member_logits, r):
     p_row, p_col = pr[np.arange(m), ci], pc[np.arange(m), ci]
     tot, _ = best_total(S)
     drops = []
-    for i in range(m):                      # how much worse is the best assignment that forbids this pair?
+    for i in range(m):
         S2 = S.copy(); S2[i, ci[i]] = -1e6
         drops.append(tot - best_total(S2)[0])
     ent = float(-(pr * np.log(pr + 1e-9)).sum(1).mean())
@@ -399,7 +364,6 @@ def main():
     sample = pd.read_csv(PUBLIC_DIR / "sample_submission.csv", keep_default_na=False)
     log(f"train rows {len(train)}, test rows {len(test)}")
     rng = np.random.default_rng(SEED)
-    # ---- out-of-fold predictions on clean and stressed copies of held-out train rows (for the confidence calibrator)
     feats, targets, meta = [], [], []
     for fold, (fi, vi) in enumerate(KFold(N_FOLDS, shuffle=True, random_state=SEED).split(train)):
         fit = [train[i] for i in fi]
@@ -414,7 +378,6 @@ def main():
             log(f"fold {fold} variant {vid}: accuracy {np.mean(targets[-len(rows):]):.4f}")
     feats, targets = np.array(feats), np.array(targets)
     meta = np.array(meta)
-    # ---- calibrator evaluated out-of-fold over rows, then the exact metric on the calibrated confidences
     conf = np.zeros(len(targets))
     for tri, tei in KFold(5, shuffle=True, random_state=SEED + 1).split(np.arange(len(train))):
         trm = np.isin(meta[:, 0], tri)
@@ -431,7 +394,6 @@ def main():
             f"sparse {strata[0]:.4f} rich {strata[1]:.4f} | 0.75*mean+0.25*worst = {0.75 * loss[sel].mean() + 0.25 * max(strata):.4f}")
     log(f"calibration check: mean conf {conf.mean():.4f} vs mean accuracy {targets.mean():.4f}")
     calibrator = new_calibrator().fit(feats, targets)
-    # ---- final ensemble on all training rows, then predict the test rows one row at a time
     models = [train_model(train, SEED + 1000 + s) for s in range(N_SEEDS)]
     preds, f = predict_rows(models, test)
     confidence = np.clip(calibrator.predict(f), 0.0, 1.0)
