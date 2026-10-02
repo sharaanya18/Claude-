@@ -120,7 +120,7 @@ class PairScorer(nn.Module):
         s1m = s1.masked_fill(~nm[:, None, :], 0.0)
         cntA = nm.float().sum(1)[:, None, None].clamp_min(1)
         mu = s1m.sum(2, keepdim=True) / cntA
-        sd = (((s1 - mu) ** 2) * nm[:, None, :].float()).sum(2, keepdim=True).div(cntA).sqrt().clamp_min(1e-6)
+        sd = ((((s1 - mu) ** 2) * nm[:, None, :].float()).sum(2, keepdim=True).div(cntA) + 1e-6).sqrt()
         zrow = ((s1 - mu) / sd)                                              # (B,N,N) z-score of each answer within its question's row
         ztrue = zrow.gather(2, pi[:, :, None])[..., 0]                         # (B,N) z-score of the true answer for each question
         zanch = (ztrue * am.float()).sum(1) / am.float().sum(1).clamp_min(1)   # mean over anchored questions
