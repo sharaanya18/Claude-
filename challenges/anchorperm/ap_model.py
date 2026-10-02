@@ -72,8 +72,10 @@ def zscore_sim(S, nm):
 
 
 class PairScorer(nn.Module):
-    def __init__(self, d=96, hid=64, use_tower=True, ctx_layers=0, drop=0.0):
+    def __init__(self, d=96, hid=64, use_tower=True, ctx_layers=0, drop=0.0, rich=0):
         super().__init__()
+        self.rich = rich
+        if rich: self.rh = nn.Sequential(nn.Linear(2 * d, rich), nn.GELU(), nn.Linear(rich, 1))
         self.use_tower = use_tower
         self.ctx_layers = ctx_layers
         if ctx_layers:
@@ -82,7 +84,7 @@ class PairScorer(nn.Module):
         self.fq = nn.Sequential(nn.Linear(32, 128), nn.GELU(), nn.Dropout(drop), nn.Linear(128, d))
         self.fa = nn.Sequential(nn.Linear(32, 128), nn.GELU(), nn.Dropout(drop), nn.Linear(128, d))
         self.d = d
-        self.head = nn.Sequential(nn.Linear(1 + 4 + 2, hid), nn.GELU(), nn.Linear(hid, hid), nn.GELU(), nn.Linear(hid, 1))
+        self.head = nn.Sequential(nn.Linear(1 + 4 + 2 + 1, hid), nn.GELU(), nn.Linear(hid, hid), nn.GELU(), nn.Linear(hid, 1))
 
     def forward(self, Q, A, nm, am, pi):
         """Q,A raw codes (B,N,32); nm valid mask (B,N); am anchored-question mask (B,N); pi true matching (B,N) (used only
@@ -93,6 +95,9 @@ class PairScorer(nn.Module):
         if self.ctx_layers:
             eq = self.cq(eq, src_key_padding_mask=~nm); ea = self.ca(ea, src_key_padding_mask=~nm)
         s1 = torch.einsum("bid,bjd->bij", eq, ea) / self.d ** 0.5
+        if self.rich:
+            pf = torch.cat([eq[:, :, None, :] * ea[:, None, :, :], (eq[:, :, None, :] - ea[:, None, :, :]).abs()], -1)
+            s1 = s1 + self.rh(pf)[..., 0]
         if not self.use_tower: s1 = s1 * 0
         Zq, Za = zscore_sim(cos_matrix(Qn), nm), zscore_sim(cos_matrix(An), nm)
         # anchors: up to K_MAX anchored questions per row (am) and their answers pi[am]
@@ -111,8 +116,17 @@ class PairScorer(nn.Module):
         absd = (diff.abs() * kf[:, :, None, :]).sum(-1) / kc
         sq = (diff ** 2 * kf[:, :, None, :]).sum(-1) / kc
         mx = (diff.abs() * kf[:, :, None, :] + (1 - kf[:, :, None, :]) * -1).amax(-1)
+        # reliability of the cross-role tower on THIS row: how well it ranks the row's own anchors (anchored pair z-score in its row)
+        s1m = s1.masked_fill(~nm[:, None, :], 0.0)
+        cntA = nm.float().sum(1)[:, None, None].clamp_min(1)
+        mu = s1m.sum(2, keepdim=True) / cntA
+        sd = (((s1 - mu) ** 2) * nm[:, None, :].float()).sum(2, keepdim=True).div(cntA).sqrt().clamp_min(1e-6)
+        zrow = ((s1 - mu) / sd)                                              # (B,N,N) z-score of each answer within its question's row
+        ztrue = zrow.gather(2, pi[:, :, None])[..., 0]                         # (B,N) z-score of the true answer for each question
+        zanch = (ztrue * am.float()).sum(1) / am.float().sum(1).clamp_min(1)   # mean over anchored questions
+        rel = zanch[:, None, None].expand(B, N, N)
         ctx = torch.stack([nm.float().sum(1) / 12.0, am.float().sum(1) / 5.0], -1)[:, None, None, :].expand(B, N, N, 2)
-        f = torch.cat([s1[..., None], prod[..., None], absd[..., None], sq[..., None], mx[..., None], ctx], -1)
+        f = torch.cat([s1[..., None], prod[..., None], absd[..., None], sq[..., None], mx[..., None], ctx, rel[..., None]], -1)
         return self.head(f)[..., 0]
 
 
@@ -144,7 +158,7 @@ def sample_anchors(rows_n, gen):
     return am
 
 
-def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0, noise_min=0.0, requant=False):
+def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0, noise_min=0.0, requant=False, rot_prob=0.0):
     """Training-only robustness augmentation: per-row Gaussian jitter and optional re-quantisation with a random gain
     (simulates rows whose codes are noisier / spread wider, as in unseen representation regimes)."""
     B = Q.shape[0]
@@ -157,6 +171,13 @@ def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0, noise_min=0.0, requant=F
         g = 1.0 + torch.rand(B, 1, 1, generator=gen) * (gain_max - 1.0)
         Q = torch.clamp(torch.round(Q * g), -2, 2) * nm[..., None]
         A = torch.clamp(torch.round(A * g), -2, 2) * nm[..., None]
+    if rot_prob > 0:
+        for X, tag in ((Q, 0), (A, 1)):
+            R = torch.linalg.qr(torch.randn(B, 32, 32, generator=gen))[0]
+            use = (torch.rand(B, 1, 1, generator=gen) < rot_prob).float()
+            Rm = use * R + (1 - use) * torch.eye(32)[None]
+            if tag == 0: Q = torch.bmm(Q, Rm)
+            else: A = torch.bmm(A, Rm)
     return Q, A
 
 
@@ -196,10 +217,10 @@ def decode_row(logit, r):
     return [ha[c] for c in ci], S
 
 
-def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max=1.0, log=print, use_tower=True, ctx_layers=0, drop=0.0, wd=1e-2, noise_min=0.0, requant=False):
+def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max=1.0, log=print, use_tower=True, ctx_layers=0, drop=0.0, wd=1e-2, noise_min=0.0, requant=False, rich=0, rot_prob=0.0):
     gen = torch.Generator().manual_seed(seed)
     torch.manual_seed(seed)
-    model = PairScorer(use_tower=use_tower, ctx_layers=ctx_layers, drop=drop)
+    model = PairScorer(use_tower=use_tower, ctx_layers=ctx_layers, drop=drop, rich=rich)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
     steps = epochs * ((len(rows) + bs - 1) // bs)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=steps, pct_start=0.1)
@@ -209,7 +230,7 @@ def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max
         model.train(); order = torch.randperm(len(rows), generator=gen); tot = 0.0
         for s in range(0, len(rows), bs):
             ix = order[s:s + bs]
-            Q, A = augment(Q0[ix], A0[ix], nm0[ix], gen, noise_max, gain_max, noise_min, requant)
+            Q, A = augment(Q0[ix], A0[ix], nm0[ix], gen, noise_max, gain_max, noise_min, requant, rot_prob)
             am = sample_anchors([ns[i] for i in ix.tolist()], gen)
             logits = model(Q, A, nm0[ix], am, pi0[ix])
             loss = listwise_loss(logits, nm0[ix], am, pi0[ix])
