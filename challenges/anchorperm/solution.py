@@ -37,13 +37,14 @@ from sklearn.model_selection import KFold
 
 SEED = 42
 N_FOLDS = 5
-N_SEEDS = 3                 # models per fold / final ensemble members
+N_SEEDS = 5                 # models per fold / final ensemble members
 EPOCHS = 40
 BATCH = 64
 LR = 2e-3
 NOISE_MAX = 0.6             # training augmentation: per-row jitter
 GAIN_MAX = 1.6              # training augmentation: per-row re-quantisation gain
-STRESS_COPIES = 2           # augmented copies of every OOF row used to fit the confidence calibrator
+ROT_PROB = 0.0              # fraction of training rows whose Q / A coordinate frames are randomly rotated (mapping-shift robustness)
+STRESS_COPIES = 3           # augmented copies of every OOF row used to fit the confidence calibrator
 T0 = time.time()            # LOGGING ONLY
 
 
@@ -128,17 +129,19 @@ def zscore_sim(S, nm):
 
 
 class PairScorer(nn.Module):
-    def __init__(self, d=96, hid=64, use_tower=True, ctx_layers=0):
+    def __init__(self, d=96, hid=64, use_tower=True, ctx_layers=0, drop=0.0, rich=0):
         super().__init__()
+        self.rich = rich
+        if rich: self.rh = nn.Sequential(nn.Linear(2 * d, rich), nn.GELU(), nn.Linear(rich, 1))
         self.use_tower = use_tower
         self.ctx_layers = ctx_layers
         if ctx_layers:
             mk = lambda: nn.TransformerEncoder(nn.TransformerEncoderLayer(d, 4, 2 * d, 0.0, batch_first=True, norm_first=True), ctx_layers)
             self.cq, self.ca = mk(), mk()
-        self.fq = nn.Sequential(nn.Linear(32, 128), nn.GELU(), nn.Linear(128, d))
-        self.fa = nn.Sequential(nn.Linear(32, 128), nn.GELU(), nn.Linear(128, d))
+        self.fq = nn.Sequential(nn.Linear(32, 128), nn.GELU(), nn.Dropout(drop), nn.Linear(128, d))
+        self.fa = nn.Sequential(nn.Linear(32, 128), nn.GELU(), nn.Dropout(drop), nn.Linear(128, d))
         self.d = d
-        self.head = nn.Sequential(nn.Linear(1 + 4 + 2, hid), nn.GELU(), nn.Linear(hid, hid), nn.GELU(), nn.Linear(hid, 1))
+        self.head = nn.Sequential(nn.Linear(1 + 4 + 2 + 1, hid), nn.GELU(), nn.Linear(hid, hid), nn.GELU(), nn.Linear(hid, 1))
 
     def forward(self, Q, A, nm, am, pi):
         """Q,A raw codes (B,N,32); nm valid mask (B,N); am anchored-question mask (B,N); pi true matching (B,N) (used only
@@ -149,6 +152,9 @@ class PairScorer(nn.Module):
         if self.ctx_layers:
             eq = self.cq(eq, src_key_padding_mask=~nm); ea = self.ca(ea, src_key_padding_mask=~nm)
         s1 = torch.einsum("bid,bjd->bij", eq, ea) / self.d ** 0.5
+        if self.rich:
+            pf = torch.cat([eq[:, :, None, :] * ea[:, None, :, :], (eq[:, :, None, :] - ea[:, None, :, :]).abs()], -1)
+            s1 = s1 + self.rh(pf)[..., 0]
         if not self.use_tower: s1 = s1 * 0
         Zq, Za = zscore_sim(cos_matrix(Qn), nm), zscore_sim(cos_matrix(An), nm)
         # anchors: up to K_MAX anchored questions per row (am) and their answers pi[am]
@@ -167,8 +173,17 @@ class PairScorer(nn.Module):
         absd = (diff.abs() * kf[:, :, None, :]).sum(-1) / kc
         sq = (diff ** 2 * kf[:, :, None, :]).sum(-1) / kc
         mx = (diff.abs() * kf[:, :, None, :] + (1 - kf[:, :, None, :]) * -1).amax(-1)
+        # reliability of the cross-role tower on THIS row: how well it ranks the row's own anchors (anchored pair z-score in its row)
+        s1m = s1.masked_fill(~nm[:, None, :], 0.0)
+        cntA = nm.float().sum(1)[:, None, None].clamp_min(1)
+        mu = s1m.sum(2, keepdim=True) / cntA
+        sd = ((((s1 - mu) ** 2) * nm[:, None, :].float()).sum(2, keepdim=True).div(cntA) + 1e-6).sqrt()
+        zrow = ((s1 - mu) / sd)                                              # (B,N,N) z-score of each answer within its question's row
+        ztrue = zrow.gather(2, pi[:, :, None])[..., 0]                         # (B,N) z-score of the true answer for each question
+        zanch = (ztrue * am.float()).sum(1) / am.float().sum(1).clamp_min(1)   # mean over anchored questions
+        rel = zanch[:, None, None].expand(B, N, N)
         ctx = torch.stack([nm.float().sum(1) / 12.0, am.float().sum(1) / 5.0], -1)[:, None, None, :].expand(B, N, N, 2)
-        f = torch.cat([s1[..., None], prod[..., None], absd[..., None], sq[..., None], mx[..., None], ctx], -1)
+        f = torch.cat([s1[..., None], prod[..., None], absd[..., None], sq[..., None], mx[..., None], ctx, rel[..., None]], -1)
         return self.head(f)[..., 0]
 
 
@@ -200,17 +215,26 @@ def sample_anchors(rows_n, gen):
     return am
 
 
-def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0):
+def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0, noise_min=0.0, requant=False, rot_prob=0.0):
     """Training-only robustness augmentation: per-row Gaussian jitter and optional re-quantisation with a random gain
     (simulates rows whose codes are noisier / spread wider, as in unseen representation regimes)."""
     B = Q.shape[0]
-    s = torch.rand(B, 1, 1, generator=gen) * noise_max
+    s = noise_min + torch.rand(B, 1, 1, generator=gen) * (noise_max - noise_min)
     Q = Q + torch.randn(Q.shape, generator=gen) * s * nm[..., None]
     A = A + torch.randn(A.shape, generator=gen) * s * nm[..., None]
+    if requant and gain_max == 1.0:
+        Q = torch.clamp(torch.round(Q), -2, 2) * nm[..., None]; A = torch.clamp(torch.round(A), -2, 2) * nm[..., None]
     if gain_max > 1.0:
         g = 1.0 + torch.rand(B, 1, 1, generator=gen) * (gain_max - 1.0)
         Q = torch.clamp(torch.round(Q * g), -2, 2) * nm[..., None]
         A = torch.clamp(torch.round(A * g), -2, 2) * nm[..., None]
+    if rot_prob > 0:
+        for X, tag in ((Q, 0), (A, 1)):
+            R = torch.linalg.qr(torch.randn(B, 32, 32, generator=gen))[0]
+            use = (torch.rand(B, 1, 1, generator=gen) < rot_prob).float()
+            Rm = use * R + (1 - use) * torch.eye(32)[None]
+            if tag == 0: Q = torch.bmm(Q, Rm)
+            else: A = torch.bmm(A, Rm)
     return Q, A
 
 
@@ -268,23 +292,32 @@ def train_model(rows, seed, epochs=EPOCHS, bs=BATCH, lr=LR):
         order = torch.randperm(len(rows), generator=gen)
         for s in range(0, len(rows), bs):
             ix = order[s:s + bs]
-            Q, A = augment(Q0[ix], A0[ix], nm0[ix], gen, NOISE_MAX, GAIN_MAX)
+            Q, A = augment(Q0[ix], A0[ix], nm0[ix], gen, NOISE_MAX, GAIN_MAX, 0.0, False, ROT_PROB)
             am = sample_anchors([ns[i] for i in ix.tolist()], gen)
             loss = listwise_loss(model(Q, A, nm0[ix], am, pi0[ix]), nm0[ix], am, pi0[ix])
             opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step(); sched.step()
     return model
 
 
-def stress_rows(rows, rng):
-    """Augmented copies of held-out TRAIN rows (random gain + noise, re-quantised): lets the confidence calibrator see how
-    prediction diagnostics relate to accuracy when codes are noisier / wider than in the familiar rows."""
+def stress_rows(rows, rng, kind):
+    """Augmented copies of held-out TRAIN rows. The confidence calibrator is fitted on these so that prediction diagnostics
+    (margins, anchor agreement, ensemble disagreement, code spread) are linked to realised accuracy under other regimes:
+    kind 0 = random gain + noise re-quantised, kind 1 = additive code noise, kind 2 = partially rotated coordinate frames."""
+    from scipy.linalg import expm
     out = []
     for r in rows:
-        g, s = rng.uniform(1.0, 1.8), rng.uniform(0.0, 0.5)
         r2 = dict(r)
-        for key in ("Q", "A"):
-            x = r[key]
-            r2[key] = np.clip(np.round(x * g + rng.normal(0, s, x.shape)), -2, 2).astype(np.float32)
+        if kind == 2:
+            theta = rng.uniform(0.4, 1.2)
+            for key in ("Q", "A"):
+                G = rng.normal(size=(32, 32)) / 32 ** 0.5
+                R = expm((G - G.T) / 2 ** 0.5 * theta)
+                r2[key] = np.clip(np.round(r[key] @ R), -2, 2).astype(np.float32)
+        else:
+            g, sd = (rng.uniform(1.0, 1.8), rng.uniform(0.0, 0.5)) if kind == 0 else (1.0, rng.uniform(0.4, 0.9))
+            for key in ("Q", "A"):
+                x = r[key]
+                r2[key] = np.clip(np.round(x * g + rng.normal(0, sd, x.shape)), -2, 2).astype(np.float32)
         out.append(r2)
     return out
 
@@ -372,7 +405,7 @@ def main():
         fit = [train[i] for i in fi]
         models = [train_model(fit, SEED + 100 * fold + s) for s in range(N_SEEDS)]
         val = [train[i] for i in vi]
-        variants = [(0, val)] + [(1 + c, stress_rows(val, rng)) for c in range(STRESS_COPIES)]
+        variants = [(0, val)] + [(1 + c, stress_rows(val, rng, c)) for c in range(STRESS_COPIES)]
         for vid, rows in variants:
             preds, f = predict_rows(models, rows)
             for j, (p, r) in enumerate(zip(preds, rows)):
@@ -392,7 +425,7 @@ def main():
         l_seq = 1.0 - targets[i]
         loss[i] = 0.85 * l_seq + 0.15 * (conf[i] - targets[i]) ** 2
     sparse = feats[:, 1] <= 3
-    for name, sel in [("clean", meta[:, 1] == 0), ("stressed", meta[:, 1] > 0)]:
+    for name, sel in [("clean", meta[:, 1] == 0), ("gain+noise", meta[:, 1] == 1), ("noise", meta[:, 1] == 2), ("part-rotated", meta[:, 1] == 3)]:
         strata = [loss[sel & sparse].mean(), loss[sel & ~sparse].mean()]
         log(f"OOF {name}: accuracy {targets[sel].mean():.4f} mean row loss {loss[sel].mean():.4f} "
             f"sparse {strata[0]:.4f} rich {strata[1]:.4f} | 0.75*mean+0.25*worst = {0.75 * loss[sel].mean() + 0.25 * max(strata):.4f}")

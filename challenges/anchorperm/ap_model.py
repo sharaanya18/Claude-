@@ -158,7 +158,7 @@ def sample_anchors(rows_n, gen):
     return am
 
 
-def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0, noise_min=0.0, requant=False, rot_prob=0.0):
+def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0, noise_min=0.0, requant=False, rot_prob=0.0, partial=0.0):
     """Training-only robustness augmentation: per-row Gaussian jitter and optional re-quantisation with a random gain
     (simulates rows whose codes are noisier / spread wider, as in unseen representation regimes)."""
     B = Q.shape[0]
@@ -173,7 +173,12 @@ def augment(Q, A, nm, gen, noise_max=0.6, gain_max=1.0, noise_min=0.0, requant=F
         A = torch.clamp(torch.round(A * g), -2, 2) * nm[..., None]
     if rot_prob > 0:
         for X, tag in ((Q, 0), (A, 1)):
-            R = torch.linalg.qr(torch.randn(B, 32, 32, generator=gen))[0]
+            if partial > 0:   # small random rotation: skew-symmetric generator with random magnitude, R = exp(S)
+                G = torch.randn(B, 32, 32, generator=gen) / 32 ** 0.5
+                S = (G - G.transpose(1, 2)) / 2 ** 0.5 * (torch.rand(B, 1, 1, generator=gen) * partial)
+                R = torch.linalg.matrix_exp(S)
+            else:
+                R = torch.linalg.qr(torch.randn(B, 32, 32, generator=gen))[0]
             use = (torch.rand(B, 1, 1, generator=gen) < rot_prob).float()
             Rm = use * R + (1 - use) * torch.eye(32)[None]
             if tag == 0: Q = torch.bmm(Q, Rm)
@@ -217,7 +222,7 @@ def decode_row(logit, r):
     return [ha[c] for c in ci], S
 
 
-def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max=1.0, log=print, use_tower=True, ctx_layers=0, drop=0.0, wd=1e-2, noise_min=0.0, requant=False, rich=0, rot_prob=0.0):
+def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max=1.0, log=print, use_tower=True, ctx_layers=0, drop=0.0, wd=1e-2, noise_min=0.0, requant=False, rich=0, rot_prob=0.0, partial=0.0):
     gen = torch.Generator().manual_seed(seed)
     torch.manual_seed(seed)
     model = PairScorer(use_tower=use_tower, ctx_layers=ctx_layers, drop=drop, rich=rich)
@@ -230,7 +235,7 @@ def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max
         model.train(); order = torch.randperm(len(rows), generator=gen); tot = 0.0
         for s in range(0, len(rows), bs):
             ix = order[s:s + bs]
-            Q, A = augment(Q0[ix], A0[ix], nm0[ix], gen, noise_max, gain_max, noise_min, requant, rot_prob)
+            Q, A = augment(Q0[ix], A0[ix], nm0[ix], gen, noise_max, gain_max, noise_min, requant, rot_prob, partial)
             am = sample_anchors([ns[i] for i in ix.tolist()], gen)
             logits = model(Q, A, nm0[ix], am, pi0[ix])
             loss = listwise_loss(logits, nm0[ix], am, pi0[ix])
