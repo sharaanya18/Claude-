@@ -75,3 +75,9 @@ parameters (HPO must run in the script), self-hosted weights, sharing solutions 
    baseline → improved → best; never submit tweaks that CV cannot resolve.
 8. **Rubric view of "good"** (task rubrics cover data handling, modelling, feature engineering, training/validation without leakage, code
    quality, communication): handle the stated imbalance/missingness, validate on a holdout/CV that avoids leakage, justify choices in comments.
+
+## Research additions (2026-10, /research/E)
+- **What the printed AI baseline probably is.** Agent pipelines in the AIDE family draft a simple first solution without ensembling or HPO, improve by one atomic change at a time and select greedily on one printed hold-out score; MLE-bench-style agents medal in roughly a sixth to a third of tasks, lower on live competitions [S, KompeteAI table]. No public source states how Eris builds its baseline (UNVERIFIED). Strategy: clear it with margin through shift-aware grouped CV, a stronger representation and a diverse refit ensemble rather than harder tuning of the same recipe.
+- **Agent failure modes to exploit (and to avoid).** Validation leakage through preprocessing (MLE-STAR: validation 0.819 -> 0.868 while test fell 0.803 -> 0.734 [S]), time handled as categories, shortcut-taking on planted entity overlap (BaitBench: 57% of runs [S]), winner's-curse selection (AIRA-dojo: oracle selection would add 9-17 pp medal rate; top-3 averaging recovers about 10 pp [S]).
+- **Hidden-shift designs to expect.** Time, entity, scaffold/cluster, domain, subpopulation, label prevalence; WILDS/Wild-Time show ~20% ID-to-OOD drops; a tuned ERM with an honest selection rule is within ~1 point of most "robust" algorithms (DomainBed [S]).
+- **Public sources say nothing about Eris leaderboards or closing; public repos of other solvers' Eris solutions exist and must not be read or copied.**

@@ -52,3 +52,10 @@ held-out images before tuning decode; report per-site/per-domain slices (dark vs
 Interpolation validated while extrapolation (new camera/scale) is tested; downsizing small details; BN with tiny batches;
 train/test crop-size mismatch; letterbox padding as a shortcut; label rasterisation after geometric transforms done at the
 wrong grid; ranking solutions by CV on random splits when sites repeat.
+
+## Research additions (2026-10, /research/D)
+- **Capacity ladder with OOD in mind:** frozen probe -> LP-FT -> full fine-tune; pick the backbone by one paired grouped-CV run (arm A ConvNeXt-T/S full FT, arm B DINOv2/EVA02 LP-FT), not by prior. Public timm 3090 train throughput (img/s, AMP): convnext_tiny 819, convnext_small 487, convnext_base 339, efficientnetv2_rw_s 521, vit_base/16 393, resnet50 1218 [S]; the A10G ratio (0.6-0.9x) is an estimate: profile before fixing epochs.
+- **Runtime formula:** time ~ folds x epochs x N_fold / train_img_s + (N_oof + N_test x views) / infer_img_s; decode and resize once into a uint8 tensor, augment on GPU batches, bf16 autocast + channels_last.
+- **Group-aware CV for images/audio:** patient/entity-isolated folds; find near-duplicates by frozen-embedding kNN including flipped copies, then union-find on TRAIN only; a grouped-vs-random CV gap above ~0.01 is the leakage tell.
+- **Resolution/TTA:** test at ~1.15x the train resolution when training with random-resized-crop (FixRes [S]); TTA can flip correct predictions to wrong: start with identity + hflip, gate on OOF.
+- **Banned here:** test-batch BN statistics, TENT-style adaptation, test pseudo-labelling (including noisy-student rounds on test), external audio/vision data.

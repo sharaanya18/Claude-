@@ -47,3 +47,9 @@ units from metadata, best-checkpoint on a *validation fold*, repeated CV; no lab
 Target-encoding leaks (leave-one-out, mismatched statistic sizes); outcome-adjacent columns; random KFold on grouped
 rows; reading ids/order; regex "solving" a templated synthetic dataset (strip-the-ML) — feed the structure to a model
 instead; blindly averaging members with different scales; selecting on the OOF you report.
+
+## Research additions (2026-10, /research/B)
+- Three GBDT libraries at meta-tuned defaults + a capped feature factory (arithmetic, group-conditional, pseudo-categorical features) with target/group statistics cross-fitted inside the outer-training fold; a regularised MLP family (TabM-style BatchEnsemble MLP / RealMLP-TD settings, implemented from scratch) as the structurally different member; blend per ensembling-and-training.
+- Metric-aware: F1 threshold = F*/2 on calibrated scores, log1p for RMSLE, regress-then-few-OOF-thresholds for ordinal/QWK tasks (public-board threshold chasing caused shake-ups).
+- Forecasting: horizon-length rolling-origin holdout with a gap, strictly backward lags, global GBDT + causal sequence NN for diversity; no online learning on test.
+- Early-stopped fold scores are optimistic: pick rounds, then re-score cleanly.

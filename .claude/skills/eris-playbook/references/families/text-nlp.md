@@ -46,3 +46,10 @@ Truncation silently dropping the answer span (check 99th percentile length; use 
 bookkeeping, F9); LoRA with a random head; label smoothing stalls on ~350 rows; mean-pooling every model;
 test-text vocabularies; hand-written regex features that already solve the task; plain argmax where the metric is
 exact-boundary F; single noisy fold deciding the encoder.
+
+## Research additions (2026-10, /research/C)
+- **Outcome-verified self-training (expert iteration) checklist:** one verified target per row (hard-EM style), refit from the base weights each round, cross-input consistency filter against false positives, label-shuffle negative control, train-side only. Measure pass@K minus selected-hit rate (coverage vs ranking gap) before adding rounds. K=4 gives a weak cluster vote.
+- **Selection among the model's own samples:** execution-consensus / structure-signature voting with log-prob tie-break; a small learned verifier trained on round-1 samples of non-seed rows is a later lever. Grammar-constrained decoding is grey/high-risk where hand-written production of outputs is banned: off without written approval (CLAUDE.md 2.3A).
+- **Base-model arithmetic:** KV bytes/token differ ~9x (Qwen2.5-0.5B ~12 KB vs Qwen3-0.6B ~112 KB) and ~16x (SmolLM2-1.7B ~192 KB): batch sizes collapse with the wrong base. Check gating/licence first.
+- **Encoder recipes:** DeBERTa-v3-large default, LLRD, mean pooling, multi-sample dropout, EMA, warmup, seeds averaged at logits, soups; decoder LLM + LoRA + classification head only when compute allows (roughly ties domain encoders at ~1.5k examples).
+- **Retrieval/rerank:** positive-aware hard-negative mining from out-of-fold retrievers, same-scenario items excluded, listwise or MarginMSE cross-encoder loss.

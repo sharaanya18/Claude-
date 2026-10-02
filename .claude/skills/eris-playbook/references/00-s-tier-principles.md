@@ -88,3 +88,12 @@ the cheapest honest baseline and its exact-metric OOF score? Then iterate with o
 - Reading train row order, ids, file sizes, positions as features (flagged and banned; also fragile).
 - Hard-coding tuned constants, hand-written regex feature extractors that solve the task, retrieval-only or
   lexical-only primary signal on tasks that ban it: all rejected as "strip-the-ML" failures.
+
+## 1c. Research digest (2026-10; full notes in /research/A-F, hypotheses in references/proposals.md)
+1. The printed baseline is likely a single-hold-out, no-ensemble agent pipeline: win with shift-aware grouped CV + stronger representation + a diverse refit ensemble.
+2. Treat the public score as a z-score (V17); accept changes only through the corrected paired test and sign consistency (V16); account for winner's curse (V18).
+3. Run the train-only audit battery (V19) and the information-ceiling check BEFORE modelling (learned-patterns L001); stop tweaking when the ceiling is reached.
+4. Rehearse the shift with broad, description-derived families and leave-one-family-out validation; never design constants from test statistics (CLAUDE.md 2.3A).
+5. Prefer LP-FT / weight averaging / simple shrunk blends for robustness; no test-row ranks.
+6. Weight provenance, licence and gating are hard compliance items (engineering-and-compliance); torchvision downloads are NOT allowed sources.
+7. Profile one batch/epoch before any full GPU run; budget quota; keep long runs inside one turn.
