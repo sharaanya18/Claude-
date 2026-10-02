@@ -72,15 +72,15 @@ def zscore_sim(S, nm):
 
 
 class PairScorer(nn.Module):
-    def __init__(self, d=96, hid=64, use_tower=True, ctx_layers=0):
+    def __init__(self, d=96, hid=64, use_tower=True, ctx_layers=0, drop=0.0):
         super().__init__()
         self.use_tower = use_tower
         self.ctx_layers = ctx_layers
         if ctx_layers:
             mk = lambda: nn.TransformerEncoder(nn.TransformerEncoderLayer(d, 4, 2 * d, 0.0, batch_first=True, norm_first=True), ctx_layers)
             self.cq, self.ca = mk(), mk()
-        self.fq = nn.Sequential(nn.Linear(32, 128), nn.GELU(), nn.Linear(128, d))
-        self.fa = nn.Sequential(nn.Linear(32, 128), nn.GELU(), nn.Linear(128, d))
+        self.fq = nn.Sequential(nn.Linear(32, 128), nn.GELU(), nn.Dropout(drop), nn.Linear(128, d))
+        self.fa = nn.Sequential(nn.Linear(32, 128), nn.GELU(), nn.Dropout(drop), nn.Linear(128, d))
         self.d = d
         self.head = nn.Sequential(nn.Linear(1 + 4 + 2, hid), nn.GELU(), nn.Linear(hid, hid), nn.GELU(), nn.Linear(hid, 1))
 
@@ -194,11 +194,11 @@ def decode_row(logit, r):
     return [ha[c] for c in ci], S
 
 
-def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max=1.0, log=print, use_tower=True, ctx_layers=0):
+def train_model(rows, epochs=30, bs=64, lr=2e-3, seed=0, noise_max=0.6, gain_max=1.0, log=print, use_tower=True, ctx_layers=0, drop=0.0, wd=1e-2):
     gen = torch.Generator().manual_seed(seed)
     torch.manual_seed(seed)
-    model = PairScorer(use_tower=use_tower, ctx_layers=ctx_layers)
-    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
+    model = PairScorer(use_tower=use_tower, ctx_layers=ctx_layers, drop=drop)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
     steps = epochs * ((len(rows) + bs - 1) // bs)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=steps, pct_start=0.1)
     Q0, A0, nm0, pi0 = pad_rows(rows)
