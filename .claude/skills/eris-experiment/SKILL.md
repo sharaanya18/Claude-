@@ -15,3 +15,5 @@ description: Run and log ONE controlled experiment on an Eris challenge: state t
 6. **Leakage red flags**: CV near-perfect on a noisy task; CV std near zero; CV moves opposite to the public LB; gain disappears under grouped folds. Stop and audit.
 7. **Plateau**: three consecutive experiments with gains below noise → `/eris-plateau`.
 8. After each kept change, run the compliance scan; keep `solution.py` the single source of truth (no `solution_v2.py`).
+
+Keep rule update (2026-10): the keep decision uses the Nadeau-Bengio corrected paired t on identical splits (validation-recipes V16) plus sign consistency across folds; log N (number of candidates tried) so the winner's-curse adjustment (V18) can be applied to the reported CV.

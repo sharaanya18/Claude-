@@ -48,3 +48,10 @@ Write the lessons that would have changed a decision; add transferable patterns 
 ## Final answer format
 Report: contract summary; validation design and bias direction; CV mean ± std (per fold/slice); fixed work plan and estimated A10G/CPU runtime; compliance self-audit; validator and determinism output;
 what was NOT verified. Never present an LLM-rubric or CV number as a leaderboard score.
+
+## Gates added from the 2026-10 research and retrospective (apply in order)
+1. Before any modelling: information-ceiling check (learned-patterns L001), train-only audit battery (validation-recipes V19), written guess of the hidden split and shift unit from the description only.
+2. Before the first GPU run: write the compute budget (quota left), profile ONE batch/epoch, check weight provenance/licence/gating (engineering-and-compliance), keep must-finish runs inside one turn.
+3. Experiments: corrected paired test + sign consistency (V16); count candidates and report the winner's-curse-adjusted CV (V18); finalists re-scored on 3 fresh split seeds plus the untouched sanity holdout.
+4. Anything that touches test rows beyond one-row inference needs the written reviewer approval file (CLAUDE.md 2.3A); otherwise it does not exist.
+5. Reviewers (compliance, runtime, red-team) before every credit; read the public score as a z-score (V17), never as a tuning signal.
