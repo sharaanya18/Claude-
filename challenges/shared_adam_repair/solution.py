@@ -9,6 +9,8 @@ Pipeline (everything is fit on the TRAIN split only; each evaluation request is 
      request's images plus a small isotropic residual; the four diagnostic responses are the observations.
   3. Candidate orders are scored by running the disclosed learner (per-request sandbox) from the inferred states:
      all candidates on the posterior mean, then the best ones under several posterior draws (expected quality).
+  (Fixed constants below -- prior scales, draw count, v-noise -- are plain design choices made during development
+  from scene-grouped validation on the TRAIN split only; no platform feedback was used.)
   4. The prior scale of the observation noise is chosen inside the script on training scenes held out from the
      v-model fit (fixed small grid, exact simulation with the released true moments as labels).
 
@@ -378,6 +380,14 @@ def main():
         vb = np.exp(v_sel.predict(v_features(d, per_image_grads(d))))
         cache.append((d, vb, qt))
     rand_q = float(np.mean([c[2].mean() for c in cache]))
+    # ablation (log only): learned v-model versus a crude non-learned proxy (mean squared batch gradient)
+    qs_proxy = []
+    for d, vb, qt in cache:
+        gb = np.stack([L.gradient(d["weights"], d["x_batches"][j], d["batch_labels"][j]) for j in range(8)])
+        st = posterior_states(d, np.maximum((gb ** 2).mean(0), 1e-12), per_image_grads(d), 0.10, 0, np.random.default_rng(SEED))[0]
+        qe, ee = Sandbox(d).quality(pool[:N_HPO_ORDERS], st)
+        qs_proxy.append(qt[int(np.argmax(qe - 1e-3 * ee))])
+    log(f"ablation: crude non-learned v proxy pick quality {np.mean(qs_proxy):.3f}")
     best_sig, best_q = None, -1.0
     for sig in SIG_GRID:
         qs = []

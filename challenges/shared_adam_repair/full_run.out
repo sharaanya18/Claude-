@@ -1,1 +1,16 @@
 [      1s] v-model (selection) on 1260 requests; held-out scenes 3
+[     32s] sig=0.07: held-out-scene pick quality 0.496 (random orders 0.316)
+[     45s] sig=0.1: held-out-scene pick quality 0.505 (random orders 0.316)
+[     58s] sig=0.15: held-out-scene pick quality 0.498 (random orders 0.316)
+[     58s] selected sig=0.1
+[     69s] final v-model fitted
+[     73s] 0/420 requests done
+[    241s] 50/420 requests done
+[    415s] 100/420 requests done
+[    589s] 150/420 requests done
+[    763s] 200/420 requests done
+[    943s] 250/420 requests done
+[   1118s] 300/420 requests done
+[   1294s] 350/420 requests done
+[   1466s] 400/420 requests done
+[   1533s] wrote working/submission.csv shape=(420, 2)
