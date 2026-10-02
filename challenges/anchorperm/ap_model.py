@@ -75,6 +75,8 @@ class PairScorer(nn.Module):
     def __init__(self, d=96, hid=64, use_tower=True, ctx_layers=0, drop=0.0, rich=0):
         super().__init__()
         self.rich = rich
+        self.adq = nn.Parameter(torch.eye(32), requires_grad=False)
+        self.ada = nn.Parameter(torch.eye(32), requires_grad=False)
         if rich: self.rh = nn.Sequential(nn.Linear(2 * d, rich), nn.GELU(), nn.Linear(rich, 1))
         self.use_tower = use_tower
         self.ctx_layers = ctx_layers
@@ -90,7 +92,7 @@ class PairScorer(nn.Module):
         """Q,A raw codes (B,N,32); nm valid mask (B,N); am anchored-question mask (B,N); pi true matching (B,N) (used only
         to read the anchored pairs, which are inputs). Returns logits (B,N,N) for [question i, answer j]."""
         B, N, _ = Q.shape
-        Qn, An = normalise(Q, nm), normalise(A, nm)
+        Qn, An = normalise(Q, nm) @ self.adq, normalise(A, nm) @ self.ada
         eq, ea = self.fq(Qn), self.fa(An)
         if self.ctx_layers:
             eq = self.cq(eq, src_key_padding_mask=~nm); ea = self.ca(ea, src_key_padding_mask=~nm)
