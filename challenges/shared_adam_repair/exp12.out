@@ -1,0 +1,2 @@
+grad prior, lgb v, mean                  pick 0.548 | best 0.984 rand 0.341 corr 0.494 | 30s
+grad prior, lgb v, mean+8 samples        pick 0.570 | best 0.984 rand 0.341 corr 0.507 | 161s

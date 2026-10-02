@@ -1,0 +1,19 @@
+fold 0: full 0.620 mean-only 0.568 canonical 0.284 random 0.328  (246s)
+fold 1: full 0.591 mean-only 0.503 canonical 0.300 random 0.307  (238s)
+fold 2: full 0.540 mean-only 0.523 canonical 0.381 random 0.336  (228s)
+fold 3: full 0.667 mean-only 0.577 canonical 0.407 random 0.366  (244s)
+                             full   mean  canon   rand
+scene                                                 
+scene_0f4121d0ef1df4c86854  0.404  0.360  0.255  0.274
+scene_284de502c9847342318c  0.565  0.538  0.262  0.300
+scene_3068430da9e4b7a67418  0.534  0.536  0.422  0.376
+scene_41e521adf8ae7a0f419e  0.456  0.429  0.345  0.273
+scene_4a8596a7790b5ca9e067  0.873  0.843  0.391  0.451
+scene_5cf4e26bd3d87da5e03f  0.623  0.525  0.334  0.350
+scene_734d0759cdb4e0d0a35e  0.562  0.539  0.447  0.328
+scene_7b69759630f869f27238  0.721  0.634  0.393  0.423
+scene_968076be2e38cf897d4d  0.582  0.500  0.205  0.260
+scene_b8aed072d29403ece56a  0.584  0.446  0.303  0.271
+scene_bfa7634640c53da7cb5e  0.523  0.494  0.273  0.305
+scene_d86580a57f7bf542e852  0.825  0.668  0.483  0.403
+OVERALL (mean over scenes): {'full': 0.604, 'mean': 0.543, 'canon': 0.343, 'rand': 0.334}

@@ -1,0 +1,18 @@
+[      1s] v-model (selection) on 1260 requests; held-out scenes 3
+[     29s] sig=0.07: held-out-scene pick quality 0.496 (random orders 0.316)
+[     42s] sig=0.1: held-out-scene pick quality 0.505 (random orders 0.316)
+[     56s] sig=0.15: held-out-scene pick quality 0.498 (random orders 0.316)
+[     56s] selected sig=0.1
+[     67s] final v-model fitted
+[     71s] 0/420 requests done
+[     85s] 4/420 requests done
+[     99s] 8/420 requests done
+Traceback (most recent call last):
+  File "/tmp/sol_dev.py", line 415, in <module>
+    main()
+  File "/tmp/sol_dev.py", line 409, in main
+    validate_submission(sub, PUBLIC_DIR / "sample_submission.csv")
+  File "/tmp/sol_dev.py", line 349, in validate_submission
+    assert sub["id"].astype(str).tolist() == sample["id"].astype(str).tolist(), "id mismatch/order"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: id mismatch/order
