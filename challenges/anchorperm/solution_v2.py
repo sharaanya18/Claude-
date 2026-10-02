@@ -37,14 +37,14 @@ from sklearn.model_selection import KFold
 
 SEED = 42
 N_FOLDS = 5
-N_SEEDS = 3                 # models per fold / final ensemble members
+N_SEEDS = 5                 # models per fold / final ensemble members
 EPOCHS = 40
 BATCH = 64
 LR = 2e-3
 NOISE_MAX = 0.6             # training augmentation: per-row jitter
 GAIN_MAX = 1.6              # training augmentation: per-row re-quantisation gain
-ROT_PROB = 0.0              # fraction of training rows whose Q / A coordinate frames are randomly rotated (mapping-shift robustness)
-STRESS_COPIES = 2           # augmented copies of every OOF row used to fit the confidence calibrator
+ROT_PROB = 0.3              # fraction of training rows whose Q / A coordinate frames are randomly rotated (mapping-shift robustness)
+STRESS_COPIES = 3           # augmented copies of every OOF row used to fit the confidence calibrator
 T0 = time.time()            # LOGGING ONLY
 
 
@@ -299,16 +299,22 @@ def train_model(rows, seed, epochs=EPOCHS, bs=BATCH, lr=LR):
     return model
 
 
-def stress_rows(rows, rng):
-    """Augmented copies of held-out TRAIN rows (random gain + noise, re-quantised): lets the confidence calibrator see how
-    prediction diagnostics relate to accuracy when codes are noisier / wider than in the familiar rows."""
+def stress_rows(rows, rng, kind):
+    """Augmented copies of held-out TRAIN rows. The confidence calibrator is fitted on these so that prediction diagnostics
+    (margins, anchor agreement, ensemble disagreement, code spread) are linked to realised accuracy under other regimes:
+    kind 0 = random gain + noise re-quantised, kind 1 = additive code noise, kind 2 = unfamiliar coordinate frames."""
     out = []
     for r in rows:
-        g, s = rng.uniform(1.0, 1.8), rng.uniform(0.0, 0.5)
         r2 = dict(r)
-        for key in ("Q", "A"):
-            x = r[key]
-            r2[key] = np.clip(np.round(x * g + rng.normal(0, s, x.shape)), -2, 2).astype(np.float32)
+        if kind == 2:
+            for key in ("Q", "A"):
+                R = np.linalg.qr(rng.normal(size=(32, 32)))[0].astype(np.float32)
+                r2[key] = np.clip(np.round(r[key] @ R), -2, 2).astype(np.float32)
+        else:
+            g, sd = (rng.uniform(1.0, 1.8), rng.uniform(0.0, 0.5)) if kind == 0 else (1.0, rng.uniform(0.4, 0.9))
+            for key in ("Q", "A"):
+                x = r[key]
+                r2[key] = np.clip(np.round(x * g + rng.normal(0, sd, x.shape)), -2, 2).astype(np.float32)
         out.append(r2)
     return out
 
@@ -396,7 +402,7 @@ def main():
         fit = [train[i] for i in fi]
         models = [train_model(fit, SEED + 100 * fold + s) for s in range(N_SEEDS)]
         val = [train[i] for i in vi]
-        variants = [(0, val)] + [(1 + c, stress_rows(val, rng)) for c in range(STRESS_COPIES)]
+        variants = [(0, val)] + [(1 + c, stress_rows(val, rng, c)) for c in range(STRESS_COPIES)]
         for vid, rows in variants:
             preds, f = predict_rows(models, rows)
             for j, (p, r) in enumerate(zip(preds, rows)):
@@ -416,7 +422,7 @@ def main():
         l_seq = 1.0 - targets[i]
         loss[i] = 0.85 * l_seq + 0.15 * (conf[i] - targets[i]) ** 2
     sparse = feats[:, 1] <= 3
-    for name, sel in [("clean", meta[:, 1] == 0), ("stressed", meta[:, 1] > 0)]:
+    for name, sel in [("clean", meta[:, 1] == 0), ("gain+noise", meta[:, 1] == 1), ("noise", meta[:, 1] == 2), ("rotated", meta[:, 1] == 3)]:
         strata = [loss[sel & sparse].mean(), loss[sel & ~sparse].mean()]
         log(f"OOF {name}: accuracy {targets[sel].mean():.4f} mean row loss {loss[sel].mean():.4f} "
             f"sparse {strata[0]:.4f} rich {strata[1]:.4f} | 0.75*mean+0.25*worst = {0.75 * loss[sel].mean() + 0.25 * max(strata):.4f}")
