@@ -195,6 +195,13 @@ def normalize_numbers(numbers) -> dict:
 
 def parse(text: str, numbers) -> Model:
     """Parse a formulation against `numbers` (numbers_json). Raises FormulationError if the grader would reject it."""
+    try:
+        return _parse(text, numbers)
+    except RecursionError:      # absurdly deep nesting in a sampled program: just another invalid program
+        raise FormulationError("expression nested too deeply")
+
+
+def _parse(text: str, numbers) -> Model:
     if not isinstance(text, str):
         raise FormulationError("formulation is not a string")
     numbers = normalize_numbers(numbers)

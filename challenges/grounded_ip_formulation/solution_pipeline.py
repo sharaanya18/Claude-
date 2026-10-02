@@ -325,8 +325,9 @@ def select_candidate(cands, numbers, logps):
         a = analyze(text, numbers)
         if a["parsed"] and a["optimum"] is not None:
             infos.append((i, a["optimum"]))
-    if not infos:
-        return 0, "no_valid"
+    if not infos:       # nothing parses: submit the model's own most likely non-empty output, verbatim
+        nonempty = [i for i, t in enumerate(cands) if t.strip()]
+        return (max(nonempty, key=lambda i: logps[i]) if nonempty else 0), "no_valid"
     best, best_key = None, None
     for i, opt in infos:
         agree = sum(1 for j, o2 in infos if j != i and rel_close(opt, o2, 1e-4))
@@ -411,7 +412,10 @@ def main():
     by_id = dict(zip([c.case_id for c in test_cases], decode_cases(model, tok, test_cases)))
     sub = pd.DataFrame({"case_id": sample.case_id, "formulation": [by_id[i] for i in sample.case_id]})
     validate_submission(sub, PUBLIC_DIR / "sample_submission.csv")
-    sub.to_csv(SUBMISSION_OUT, index=False)
+    tmp = SUBMISSION_OUT.with_suffix(".tmp")
+    sub.to_csv(tmp, index=False)
+    validate_submission(pd.read_csv(tmp, keep_default_na=False), PUBLIC_DIR / "sample_submission.csv")
+    os.replace(tmp, SUBMISSION_OUT)
     log(f"wrote {SUBMISSION_OUT} shape={sub.shape}")
 
 

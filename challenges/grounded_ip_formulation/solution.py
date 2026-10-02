@@ -61,15 +61,15 @@ LARGE_VARS = 6
 EPOCHS_S1 = 2
 EPOCHS_S3 = 2
 EPOCHS_S5 = 2
-K_EI = 4                    # samples per unsolved training case per expert-iteration round
+K_EI = 3                    # samples per unsolved training case per expert-iteration round
 T_EI = 0.8
 TOP_P = 0.95
-MAXNEW_EI = 384
+MAXNEW_EI = 320
 GEN_PROMPTS_PER_BATCH = 64
 EI_ROUNDS = 1               # one expert-iteration round (stages 2-3); the shipped model is the stage-3 model
-K_TEST = 8
+K_TEST = 6
 T_TEST = 0.7
-MAXNEW_TEST = 768
+MAXNEW_TEST = 640
 TEST_PROMPTS_PER_BATCH = 24
 N_PERTURB = 3               # train-side perturbation draws used to filter accepted samples
 ALLOWED_LITERALS = (0.0, 1.0, 100.0)   # the only numbers the references may type in instead of referencing
@@ -253,6 +253,13 @@ def normalize_numbers(numbers) -> dict:
 
 def parse(text: str, numbers) -> Model:
     """Parse a formulation against `numbers` (numbers_json). Raises FormulationError if the grader would reject it."""
+    try:
+        return _parse(text, numbers)
+    except RecursionError:      # absurdly deep nesting in a sampled program: just another invalid program
+        raise FormulationError("expression nested too deeply")
+
+
+def _parse(text: str, numbers) -> Model:
     if not isinstance(text, str):
         raise FormulationError("formulation is not a string")
     numbers = normalize_numbers(numbers)
@@ -732,8 +739,9 @@ def select_candidate(cands, numbers, logps):
         a = analyze(text, numbers)
         if a["parsed"] and a["optimum"] is not None:
             infos.append((i, a["optimum"]))
-    if not infos:
-        return 0, "no_valid"
+    if not infos:       # nothing parses: submit the model's own most likely non-empty output, verbatim
+        nonempty = [i for i, t in enumerate(cands) if t.strip()]
+        return (max(nonempty, key=lambda i: logps[i]) if nonempty else 0), "no_valid"
     best, best_key = None, None
     for i, opt in infos:
         agree = sum(1 for j, o2 in infos if j != i and rel_close(opt, o2, 1e-4))
@@ -818,7 +826,10 @@ def main():
     by_id = dict(zip([c.case_id for c in test_cases], decode_cases(model, tok, test_cases)))
     sub = pd.DataFrame({"case_id": sample.case_id, "formulation": [by_id[i] for i in sample.case_id]})
     validate_submission(sub, PUBLIC_DIR / "sample_submission.csv")
-    sub.to_csv(SUBMISSION_OUT, index=False)
+    tmp = SUBMISSION_OUT.with_suffix(".tmp")
+    sub.to_csv(tmp, index=False)
+    validate_submission(pd.read_csv(tmp, keep_default_na=False), PUBLIC_DIR / "sample_submission.csv")
+    os.replace(tmp, SUBMISSION_OUT)
     log(f"wrote {SUBMISSION_OUT} shape={sub.shape}")
 
 
