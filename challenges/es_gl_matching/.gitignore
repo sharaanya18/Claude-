@@ -1,0 +1,7 @@
+kaggle_data/
+kaggle_kernel/
+kaggle_out/
+working/
+*.npz
+__pycache__/
+kg_*.out
