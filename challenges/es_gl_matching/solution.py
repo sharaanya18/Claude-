@@ -1,17 +1,18 @@
 """Spanish clue -> Galician descriptor matching inside folios.
 
 Pipeline (all fitting on TRAIN folios only; every test folio is scored on its own):
-  1. A multilingual bi-encoder (BAAI/bge-m3 weights from the HF hub) is fine-tuned on the training folios with an
-     in-batch contrastive loss in which the other items of the same folio are the hard negatives.
-  2. Each folio gets a learned clue x descriptor similarity matrix; a one-to-one assignment is decoded with the
-     Hungarian algorithm on the (Sinkhorn-normalised) matrix.
-  3. Confidence = a small calibration map (3 parameters) fitted on out-of-fold similarity matrices of family-grouped
-     folds, using the exact challenge score.
+  1. Two multilingual encoders (BAAI/bge-m3 and intfloat/multilingual-e5-large, pretrained weights from the HF hub) are
+     fine-tuned on the training folios with a multi-positive contrastive loss over dense and late-interaction (MaxSim)
+     similarities; the other items of the same folio are the hard negatives, and passages that recur across training folios
+     are linked into concepts to supply extra positives.
+  2. Each test folio gets a learned clue x descriptor score matrix (average of the two models); a one-to-one assignment is
+     decoded with the Hungarian algorithm on the Sinkhorn-normalised matrix.
+  3. Confidence = a 3-parameter calibration map fitted with the exact challenge score on a held-out slice of TRAIN families
+     (family groups are built from train text only; those folios are not used to fit the encoders).
 
 Requirements map:
-  * task-trained neural model on one A10G, full run < 90 min: DEVICE constant, fixed epochs/folds/batch (profiled).
-  * the GPU-trained encoder generates every scored comparison matrix; CPU only batches, normalises and runs the
-    one-to-one decode.
+  * task-trained neural model on one A10G, full run < 90 min: DEVICE constant, fixed epochs/batch (two models, 3 epochs each).
+  * the GPU-trained encoders generate every scored comparison matrix; CPU only batches, normalises and runs the decode.
   * no TF-IDF / BM25 / n-gram / dictionary / fixed-embedding matching in the predictor (TF-IDF is used only to build
     validation groups from TRAIN text); no external data; no label or id tricks; byte anchors are never read.
   * output: target_id,prediction with {"descriptor_id":..., "confidence":...}, confidence in [1/n, 1].
@@ -36,21 +37,24 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment, minimize
+from scipy.special import logsumexp
 from sklearn.feature_extraction.text import TfidfVectorizer
 from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warmup
 
 SEED = 42
 DEVICE = "cuda"
+MODEL_CONFIGS = [("BAAI/bge-m3", "cls", ""), ("intfloat/multilingual-e5-large", "mean", "query: ")]
 MODEL_NAME = "BAAI/bge-m3"
 MAX_LEN = 256
 POOLING = "cls"
 PREFIX = ""
 COLBERT_W = 1.0
+EXTRA_POS = True
 EPOCHS = 3
 FOLIOS_PER_BATCH = 4
 LR = 1.5e-5
 TEMP = 0.05
-N_CV_FOLDS = 3
+N_CV_FOLDS = 6
 SINKHORN_ITERS = 60
 T0 = time.time()
 
@@ -172,10 +176,69 @@ def pad_batch(seqs, pad_id):
     return ids.to(DEVICE), mask.to(DEVICE)
 
 
+def concept_clusters(items):
+    """Union-find over passages: a clue and its gold descriptor share a concept; identical passage texts in different
+    folios therefore join their folios' concepts (training labels only)."""
+    parent = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for it in items:
+        for i, g in enumerate(it["gold"]):
+            parent[find(("es", it["es"][i]))] = find(("gl", it["gl"][g]))
+    ids, tok_of, members = {}, {}, {}
+    for it in items:
+        for side in ("es", "gl"):
+            for t, tk in zip(it[side], it[side + "_tok"]):
+                key = (side, t)
+                ids[key] = find(key)
+                tok_of[key] = tk
+                members.setdefault(find(key), {"es": {}, "gl": {}})[side][t] = tk
+    names = {r: n for n, r in enumerate(sorted({v for v in ids.values()}, key=str))}
+    return {k: names[v] for k, v in ids.items()}, {names[r]: m for r, m in members.items()}, names
+
+
+def supcon(sim, pos):
+    """Multi-positive InfoNCE over rows of sim; pos is a boolean mask of the same shape."""
+    neg_inf = torch.finfo(sim.dtype).min
+    lp = torch.logsumexp(sim.masked_fill(~pos, neg_inf), dim=1) - torch.logsumexp(sim, dim=1)
+    ok = pos.any(1)
+    return -lp[ok].mean()
+
+
+def build_batch(batch, cid, members, rng):
+    es, gl, ce, cg = [], [], [], []
+    seen_gl = set()
+    for it in batch:
+        for t, tk in zip(it["es"], it["es_tok"]):
+            es.append(tk)
+            ce.append(cid[("es", t)])
+        for t, tk in zip(it["gl"], it["gl_tok"]):
+            gl.append(tk)
+            cg.append(cid[("gl", t)])
+            seen_gl.add(t)
+    if EXTRA_POS:
+        for it in batch:
+            for t in it["es"]:
+                mates = [(x, tk) for x, tk in members[cid[("es", t)]]["gl"].items() if x not in seen_gl]
+                if mates:
+                    x, tk = mates[int(rng.integers(len(mates)))]
+                    gl.append(tk)
+                    cg.append(cid[("gl", x)])
+                    seen_gl.add(x)
+    return es, gl, ce, cg
+
+
 def train_model(items, tok, tag):
     """Fine-tune the encoder on the given training folios (items carry tokenised texts under 'es_tok'/'gl_tok')."""
     seed_everything()
     model = Encoder().to(DEVICE)
+    cid, members, names = concept_clusters(items)
     opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=0.01)
     steps_per_epoch = (len(items) + FOLIOS_PER_BATCH - 1) // FOLIOS_PER_BATCH
     sched = get_linear_schedule_with_warmup(opt, int(0.1 * EPOCHS * steps_per_epoch), EPOCHS * steps_per_epoch)
@@ -188,24 +251,16 @@ def train_model(items, tok, tag):
         tot = 0.0
         for s in range(0, len(perm), FOLIOS_PER_BATCH):
             batch = [items[k] for k in perm[s:s + FOLIOS_PER_BATCH]]
-            es, gl, tgt, off = [], [], [], 0
-            for it in batch:
-                n = len(it["es_tok"])
-                es += it["es_tok"]
-                gl += it["gl_tok"]
-                tgt += list(off + it["gold"])
-                off += n
-            tgt = torch.tensor(tgt, device=DEVICE)
+            es, gl, ce, cg = build_batch(batch, cid, members, rng)
+            pos = torch.tensor(ce, device=DEVICE)[:, None] == torch.tensor(cg, device=DEVICE)[None, :]
             pe, pg = pad_batch(es, pad_id), pad_batch(gl, pad_id)
             with torch.autocast("cuda", dtype=torch.float16):
                 e, Te = model(*pe)
                 g, Tg = model(*pg)
                 cs = maxsim(Te, pe[1], Tg, pg[1])
-            inv = torch.empty_like(tgt)
-            inv[tgt] = torch.arange(len(tgt), device=DEVICE)
             sim = e @ g.T / TEMP
             cs = cs.float() / TEMP
-            loss = 0.5 * (F.cross_entropy(sim, tgt) + F.cross_entropy(sim.T, inv)) + 0.5 * (F.cross_entropy(cs, tgt) + F.cross_entropy(cs.T, inv))
+            loss = 0.5 * (supcon(sim, pos) + supcon(sim.T, pos.T)) + 0.5 * (supcon(cs, pos) + supcon(cs.T, pos.T))
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
@@ -238,11 +293,12 @@ def combine(pair):
 
 # ---------------------------------------------------------------- decode + calibration
 def sinkhorn(S, tau, iters=SINKHORN_ITERS):
-    K = np.exp((S - S.max()) / tau)
+    logK = (S - S.max()) / tau
     for _ in range(iters):
-        K = K / K.sum(1, keepdims=True)
-        K = K / K.sum(0, keepdims=True)
-    return K / K.sum(1, keepdims=True)
+        logK = logK - logsumexp(logK, axis=1, keepdims=True)
+        logK = logK - logsumexp(logK, axis=0, keepdims=True)
+    logK = logK - logsumexp(logK, axis=1, keepdims=True)
+    return np.exp(logK)
 
 
 def decode(S, params):
@@ -299,45 +355,54 @@ def validate_submission(sub, sample_path, test_folio_of):
         assert 1 / n - 1e-9 <= o["confidence"] <= 1 + 1e-9 and o["descriptor_id"] in test_folio_of[t][0]
 
 
+def prepare(items, tok):
+    for it in items:
+        it["es_tok"], it["gl_tok"] = tokenize(tok, it["es"]), tokenize(tok, it["gl"])
+
+
 def main():
+    global MODEL_NAME, POOLING, PREFIX
     seed_everything()
     folios = load_folios(PUBLIC_DIR)
     train_df = pd.read_csv(PUBLIC_DIR / "train.csv")
     test_df = pd.read_csv(PUBLIC_DIR / "test.csv")
     tt = pd.read_csv(PUBLIC_DIR / "train_targets.csv")
     gold = {r.target_id: json.loads(r.prediction)["descriptor_id"] for r in tt.itertuples()}
-    tok = AutoTokenizer.from_pretrained(MODEL_NAME)
-
     tr = train_df.drop_duplicates("folio_id")
     items = [folio_arrays(folios[f], gold) for f in tr["folio_id"]]
     bands = list(tr["evidence_band"])
-    for it in items:
-        it["es_tok"], it["gl_tok"] = tokenize(tok, it["es"]), tokenize(tok, it["gl"])
     fold, comp = build_groups(items, N_CV_FOLDS)
-    log(f"{len(items)} train folios, {len(set(comp))} groups, fold sizes {np.bincount(fold)}")
-
-    oof = [None] * len(items)
-    for k in range(N_CV_FOLDS):
-        tr_idx = [i for i in range(len(items)) if fold[i] != k]
-        va_idx = [i for i in range(len(items)) if fold[i] == k]
-        model = train_model([items[i] for i in tr_idx], tok, f"cv{k}")
-        for i, S in zip(va_idx, similarity_matrices(model, [items[i] for i in va_idx], tok)):
-            oof[i] = combine(S)
-        acc = np.mean([np.mean(linear_sum_assignment(-oof[i])[1] == items[i]["gold"]) for i in va_idx])
-        log(f"fold {k}: hungarian accuracy {acc:.3f}")
-        del model
-        torch.cuda.empty_cache()
-    params, cv_score = fit_calibration(oof, items, bands)
-    log(f"calibration {np.round(params, 3)}; OOF score (in-sample calibration) {cv_score:.2f}")
-
-    model = train_model(items, tok, "final")
+    fit_idx = [i for i in range(len(items)) if fold[i] != N_CV_FOLDS - 1]
+    cal_idx = [i for i in range(len(items)) if fold[i] == N_CV_FOLDS - 1]
+    log(f"{len(items)} train folios, {len(set(comp))} groups; fit {len(fit_idx)} folios, calibration holdout {len(cal_idx)} folios")
     te = test_df.drop_duplicates("folio_id")
     t_items = [folio_arrays(folios[f]) for f in te["folio_id"]]
-    for it in t_items:
-        it["es_tok"], it["gl_tok"] = tokenize(tok, it["es"]), tokenize(tok, it["gl"])
+    fit_items, cal_items = [items[i] for i in fit_idx], [items[i] for i in cal_idx]
+    cal_bands = [bands[i] for i in cal_idx]
+
+    cal_sims, test_sims = [], []
+    for name, pool, prefix in MODEL_CONFIGS:
+        MODEL_NAME, POOLING, PREFIX = name, pool, prefix
+        tok = AutoTokenizer.from_pretrained(name)
+        for group in (fit_items, cal_items, t_items):
+            prepare(group, tok)
+        model = train_model(fit_items, tok, name.split("/")[-1])
+        cal_sims.append(similarity_matrices(model, cal_items, tok))
+        test_sims.append(similarity_matrices(model, t_items, tok))
+        acc = np.mean([np.mean(linear_sum_assignment(-combine(p))[1] == it["gold"]) for p, it in zip(cal_sims[-1], cal_items)])
+        log(f"{name}: held-out-family Hungarian accuracy {acc:.3f}")
+        del model
+        torch.cuda.empty_cache()
+
+    cal_ens = [np.mean([combine(m[k]) for m in cal_sims], 0) for k in range(len(cal_items))]
+    acc = np.mean([np.mean(linear_sum_assignment(-S)[1] == it["gold"]) for S, it in zip(cal_ens, cal_items)])
+    params, cal_score = fit_calibration(cal_ens, cal_items, cal_bands)
+    log(f"ensemble held-out accuracy {acc:.3f}; calibration {np.round(params, 3)}; held-out score {cal_score:.2f}")
+
     rows, test_folio_of = [], {}
-    for it, S in zip(t_items, similarity_matrices(model, t_items, tok)):
-        c, conf = decode(combine(S), params)
+    for k, it in enumerate(t_items):
+        S = np.mean([combine(m[k]) for m in test_sims], 0)
+        c, conf = decode(S, params)
         n = len(c)
         for i, t in enumerate(it["clue_ids"]):
             rows.append((t, json.dumps({"descriptor_id": it["desc_ids"][c[i]], "confidence": float(conf[i])}, separators=(",", ":"))))

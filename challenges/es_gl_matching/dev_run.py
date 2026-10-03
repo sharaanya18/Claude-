@@ -16,6 +16,8 @@ t = time.time(); model = S.train_model([items[i] for i in tr_idx], tok, "dev"); 
 pairs = S.similarity_matrices(model, [items[i] for i in va_idx], tok); vi = [items[i] for i in va_idx]; vb = [bands[i] for i in va_idx]
 def acc_of(mats): return np.mean([np.mean(linear_sum_assignment(-m)[1] == it["gold"]) for m, it in zip(mats, vi)])
 print("val hungarian acc dense %.3f colbert %.3f combined %.3f | argmax dense %.3f" % (acc_of([p[0] for p in pairs]), acc_of([p[1] for p in pairs]), acc_of([S.combine(p) for p in pairs]), np.mean([np.mean(p[0].argmax(1) == it["gold"]) for p, it in zip(pairs, vi)])), flush=True)
+np.savez("dev_sims.npz", va_idx=np.array(va_idx), fold=fold, **{f"d{i}": p[0] for i, p in enumerate(pairs)}, **{f"c{i}": p[1] for i, p in enumerate(pairs)})
+for bd in sorted(set(vb)): print("band", bd, "hungarian acc dense %.3f combined %.3f" % (np.mean([np.mean(linear_sum_assignment(-pairs[i][0])[1] == vi[i]["gold"]) for i in range(len(vi)) if vb[i] == bd]), np.mean([np.mean(linear_sum_assignment(-S.combine(pairs[i]))[1] == vi[i]["gold"]) for i in range(len(vi)) if vb[i] == bd])), flush=True)
 sims = [S.combine(p) for p in pairs]
 ev = list(range(0, len(vi), 2)); od = list(range(1, len(vi), 2)); sc = []
 for a_, b_ in [(ev, od), (od, ev)]:
