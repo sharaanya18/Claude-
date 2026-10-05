@@ -41,15 +41,11 @@ import pandas as pd
 import scipy.sparse as sp
 from scipy.optimize import linear_sum_assignment
 from sklearn.preprocessing import normalize
-import lightgbm as lgb
 import torch
 
 SEED = 42
 N_FOLDS = 5                 # row folds for out-of-fold features / honest CV
 N_BG = 2000                 # background prefixes per fit set (score standardisation)
-LGB_ROUNDS = 400
-LGB_SEEDS = (0, 1, 2)
-FINAL_STACK = "mlp"        # which OOF-validated stacker feeds the submission: lgbm | mlp | blend
 TRANS_WINDOW, TRANS_DECAY = 10, 0.8
 T0 = time.time()
 
@@ -59,6 +55,8 @@ def log(msg):               # elapsed time is telemetry only, never used in a co
 
 
 random.seed(SEED); np.random.seed(SEED); torch.manual_seed(SEED); torch.set_num_threads(N_THREADS)
+torch.backends.cudnn.deterministic = True; torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True, warn_only=True)
 
 
 # --------------------------------------------------------------------------------------------- data
@@ -362,6 +360,7 @@ def lk_features(D, hk, R, exclude_own):
 
 def lk_fit(X, idx, l2=0.1, steps=300, lr=0.05):
     """Learn non-negative bin weights by maximising the exact likelihood of the true 6x6 matching (720 permutations)."""
+    torch.manual_seed(SEED)
     X = torch.tensor(X).float(); idx = torch.tensor(idx)
     theta = torch.nn.Parameter(torch.randn(X.shape[-1]) * 0.1 - 2.0); leps = torch.nn.Parameter(torch.tensor(0.0))
     opt = torch.optim.Adam([theta, leps], lr=lr); P = torch.tensor(PERMS); ar = torch.arange(6)
@@ -415,25 +414,6 @@ def release_features(D, rg, R, exclude_own):
     return np.log1p(np.stack([rg.row(r, exclude_own) for _, r in R.iterrows()]))
 
 # --------------------------------------------------------------------------------------- model/decode
-LGB_PARAMS = dict(objective="binary", learning_rate=0.03, num_leaves=15, min_data_in_leaf=40, feature_fraction=0.7,
-                  bagging_fraction=0.8, bagging_freq=1, lambda_l2=5.0, verbose=-1, num_threads=N_THREADS,
-                  deterministic=True, force_row_wise=True)
-
-
-def fit_pair_model(X, y):
-    F = X.shape[-1]
-    models = []
-    for sd in LGB_SEEDS:
-        p = dict(LGB_PARAMS, seed=sd, bagging_seed=sd, feature_fraction_seed=sd)
-        models.append(lgb.train(p, lgb.Dataset(X.reshape(-1, F), y.reshape(-1)), num_boost_round=LGB_ROUNDS))
-    return models
-
-
-def predict_pair(models, X):
-    F = X.shape[-1]
-    return np.mean([m.predict(X.reshape(-1, F), raw_score=True) for m in models], 0).reshape(-1, 6, 6)
-
-
 MLP_HID, MLP_WD, MLP_STEPS, MLP_SEEDS = 32, 1e-2, 250, (0, 1, 2)
 
 
@@ -548,40 +528,30 @@ def main():
         parts = [Z[..., None]] + [v[..., None] for v in rowwise_all(Z)] + [RL]
         return np.concatenate(parts, -1).astype(np.float32)
     Xtr = np.concatenate([Xtr, np.stack([extra(Ztr[i], RLtr[i]) for i in range(len(tr))])], -1)
-    ytr = np.zeros((len(tr), 6, 6), np.float32)
-    for i in range(len(tr)):
-        ytr[i, np.arange(6), Y[i]] = 1
 
-    # ---- honest CV of both stackers (features were built out-of-fold) and of their blend
-    oof_l = np.zeros((len(tr), 6, 6)); oof_m = np.zeros((len(tr), 6, 6))
+    # ---- honest CV of the listwise stacker (features were built out-of-fold) and decode temperature on OOF logits
+    oof = np.zeros((len(tr), 6, 6))
     for f in range(N_FOLDS):
-        oof_l[fold == f] = predict_pair(fit_pair_model(Xtr[fold != f], ytr[fold != f]), Xtr[fold == f])
-        oof_m[fold == f] = predict_mlp(fit_mlp(Xtr[fold != f], ptr[fold != f]), Xtr[fold == f])
+        oof[fold == f] = predict_mlp(fit_mlp(Xtr[fold != f], ptr[fold != f]), Xtr[fold == f])
         log(f"cv fold {f} done")
-    zs = lambda z: (z - z.mean()) / z.std()
-    cands = {"lgbm": oof_l, "mlp": oof_m, "blend": 0.5 * zs(oof_l) + 0.5 * zs(oof_m)}
     temps = [0.05, 0.1, 0.15, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0]
-    best = {}
-    for nm, z in cands.items():
-        nll = [true_perm_nll(z, Y, t) for t in temps]; t_ = temps[int(np.argmin(nll))]
-        post = np.array([decode(zz, t_) for zz in z]); best[nm] = t_
-        pf = [chance_corrected(post[fold == f], Y[fold == f]) for f in range(N_FOLDS)]
-        log(f"OOF {nm}: argmax {chance_corrected(z.argmax(2), Y):.4f} hungarian "
-            f"{chance_corrected(np.array([linear_sum_assignment(-zz)[1] for zz in z]), Y):.4f} posterior {chance_corrected(post, Y):.4f} "
-            f"(temp {t_}) per-fold {np.round(pf, 4)} mean {np.mean(pf):.4f} std {np.std(pf):.4f}")
-    temp = best[FINAL_STACK]
+    nll = [true_perm_nll(oof, Y, t) for t in temps]; temp = temps[int(np.argmin(nll))]
+    hung = np.array([linear_sum_assignment(-z)[1] for z in oof])
+    post = np.array([decode(z, temp) for z in oof])
+    per_fold = [chance_corrected(post[fold == f], Y[fold == f]) for f in range(N_FOLDS)]
+    log(f"OOF score: argmax {chance_corrected(oof.argmax(2), Y):.4f} hungarian {chance_corrected(hung, Y):.4f} "
+        f"posterior-decode {chance_corrected(post, Y):.4f} (temp {temp}); per-fold {np.round(per_fold, 4)} "
+        f"mean {np.mean(per_fold):.4f} std {np.std(per_fold):.4f}")
 
     # ---- final model on all labelled rows; test features use every non-test session as fit material
-    models = fit_pair_model(Xtr, ytr); mlp_model = fit_mlp(Xtr, ptr)
+    mlp_model = fit_mlp(Xtr, ptr)
     fit_idx = np.where(~D.is_test)[0]
     bg = rng.choice(fit_idx[D.n1[fit_idx] >= 8], N_BG, replace=False)
     Xte = build_features(D, te, fit_idx, bg)
     Zte = lk_scores(lk_fit(LKtr, ptr), lk_features(D, hk, te, False))
     RLte = release_features(D, rg, te, False)
     Xte = np.concatenate([Xte, np.stack([extra(Zte[i], RLte[i]) for i in range(len(te))])], -1)
-    zl, zm = predict_pair(models, Xte), predict_mlp(mlp_model, Xte)
-    # z-score each stacker with the statistics of its own OOF logits so the blend matches what was validated
-    Zpair = {"lgbm": zl, "mlp": zm, "blend": 0.5 * (zl - oof_l.mean()) / oof_l.std() + 0.5 * (zm - oof_m.mean()) / oof_m.std()}[FINAL_STACK]
+    Zpair = predict_mlp(mlp_model, Xte)
     pred = np.array([decode(z, temp) for z in Zpair]) + 1
     sub = pd.DataFrame(pred, columns=[f"match_{i}" for i in range(1, 7)])
     sub.insert(0, "id", te.id.values)
