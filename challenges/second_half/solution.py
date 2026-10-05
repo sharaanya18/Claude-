@@ -42,6 +42,7 @@ import scipy.sparse as sp
 from scipy.optimize import linear_sum_assignment
 from sklearn.preprocessing import normalize
 import lightgbm as lgb
+import torch
 
 SEED = 42
 N_FOLDS = 5                 # row folds for out-of-fold features / honest CV
@@ -56,7 +57,7 @@ def log(msg):               # elapsed time is telemetry only, never used in a co
     print(f"[{time.time() - T0:6.0f}s] {msg}", flush=True)
 
 
-random.seed(SEED); np.random.seed(SEED)
+random.seed(SEED); np.random.seed(SEED); torch.manual_seed(SEED); torch.set_num_threads(N_THREADS)
 
 
 # --------------------------------------------------------------------------------------------- data
@@ -222,6 +223,10 @@ def exclusive_bags(D, Pidx):
     return sp.csr_matrix((vals, (rows, cols_)), shape=(len(Pidx), D.NA), dtype=np.float32)
 
 
+def rowwise_all(v):
+    return rowwise(v)
+
+
 def build_features(D, R, fit_idx, bg_idx):
     """Pair features (n_rows, 6 prefixes, 6 candidates, F) for rows R using only fit sessions as training material."""
     fit_mask = np.zeros(D.NS, bool); fit_mask[fit_idx] = True
@@ -289,6 +294,124 @@ def build_features(D, R, fit_idx, bg_idx):
         out.append(np.stack(F, -1))
     return np.stack(out).astype(np.float32)
 
+
+
+
+# ------------------------------------------------------------------------ learned histogram kernel
+LK_TYPES = ("art_bin", "art_log", "rel_log")
+LK_NB = 14                                      # similarity bins per kernel type
+LK_EDGES = np.geomspace(0.01, 0.6, LK_NB - 1)   # log-spaced cosine edges
+LK_SIZE_EDGES = np.log([12, 30])                # neighbour-day length buckets (3)
+
+
+class HistKernel:
+    """Counts, per (prefix, candidate artist), the fit days that contain the artist, binned by the day's similarity to the
+    prefix (3 similarity types x 14 bins x 3 day-length buckets).  A non-negative weight per bin is then LEARNED by
+    maximising the likelihood of the true matching (end-to-end learned neighbour weighting)."""
+
+    def __init__(self, D, fit_mask):
+        self.D, self.fit_mask = D, fit_mask
+        fi = np.where(fit_mask)[0]
+        cfg = {"art_bin": (D.C1, D.Ca, "bin", 0.5), "art_log": (D.C1, D.Ca, "log", 1.0), "rel_log": (D.R1, D.Ra, "log", 0.5)}
+        self.Q, self.F = {}, {}
+        for t in LK_TYPES:
+            P1, Pa, kind, w = cfg[t]
+            W = idf_diag(Pa, fi, w)
+            self.F[t] = normalize(tf_apply(Pa, kind) @ W).tocsr()
+            self.Q[t] = normalize(tf_apply(P1, kind) @ W).tocsr()
+        self.size_bucket = np.digitize(np.log(np.maximum(D.Ca.getnnz(1), 1)), LK_SIZE_EDGES)
+        self.Tcsc = D.Ca.tocsc()
+
+    def row(self, pre_sessions, cand_artists, own_sessions):
+        """Returns (6 prefixes, len(cand_artists), 126) counts; own_sessions are excluded from the neighbours."""
+        out = np.zeros((6, len(cand_artists), len(LK_TYPES), LK_NB, 3), np.float32)
+        lists = []
+        for a in cand_artists:
+            ss = self.Tcsc.indices[self.Tcsc.indptr[a]:self.Tcsc.indptr[a + 1]]
+            ss = ss[self.fit_mask[ss]]
+            lists.append(ss[~np.isin(ss, own_sessions)])
+        U = np.unique(np.concatenate(lists))
+        if len(U) == 0:
+            return out.reshape(6, len(cand_artists), -1)
+        pos = {x: i for i, x in enumerate(U)}
+        for ti, t in enumerate(LK_TYPES):
+            bins = np.digitize((self.Q[t][pre_sessions] @ self.F[t][U].T).toarray(), LK_EDGES)
+            for ai, ss in enumerate(lists):
+                if len(ss) == 0:
+                    continue
+                ix = np.array([pos[x] for x in ss]); sb = self.size_bucket[ss]
+                for k in range(3):
+                    m = sb == k
+                    if m.any():
+                        for j in range(6):
+                            out[j, ai, ti, :, k] = np.bincount(bins[j][ix[m]], minlength=LK_NB)[:LK_NB]
+        return out.reshape(6, len(cand_artists), -1)
+
+
+def lk_features(D, hk, R, exclude_own):
+    """(n_rows, 6, 6, 126): bin counts averaged over the two artists of each candidate."""
+    out = []
+    for _, r in R.iterrows():
+        pre = [D.sid[x] for x in r.pre]
+        arts = [a for c in r.cand for a in D.cc[c]]
+        f = hk.row(pre, arts, np.array(pre) if exclude_own else np.array([], int))
+        out.append(f.reshape(6, 6, 2, -1).mean(2))
+    return np.stack(out)
+
+
+def lk_fit(X, idx, l2=0.1, steps=300, lr=0.05):
+    """Learn non-negative bin weights by maximising the exact likelihood of the true 6x6 matching (720 permutations)."""
+    X = torch.tensor(X).float(); idx = torch.tensor(idx)
+    theta = torch.nn.Parameter(torch.randn(X.shape[-1]) * 0.1 - 2.0); leps = torch.nn.Parameter(torch.tensor(0.0))
+    opt = torch.optim.Adam([theta, leps], lr=lr); P = torch.tensor(PERMS); ar = torch.arange(6)
+    for _ in range(steps):
+        opt.zero_grad()
+        Z = torch.log((X * torch.nn.functional.softplus(theta)).sum(-1) + torch.exp(leps))
+        ll = Z[:, ar[None, :], P].sum(-1)
+        loss = -(ll.gather(1, idx[:, None]).squeeze(1) - torch.logsumexp(ll, 1)).mean() \
+            + l2 * (torch.nn.functional.softplus(theta) ** 2).sum()
+        loss.backward(); opt.step()
+    return theta.detach(), leps.detach()
+
+
+def lk_scores(model, X):
+    theta, leps = model
+    with torch.no_grad():
+        return torch.log((torch.tensor(X).float() * torch.nn.functional.softplus(theta)).sum(-1) + torch.exp(leps)).numpy()
+
+
+# ------------------------------------------------------------------ release-graph links (metadata, not co-listening)
+class ReleaseGraph:
+    """artist x release incidence from fit days: links an artist credit variant / compilation partner to a prefix even when
+    no one listened to both."""
+
+    def __init__(self, D, fit_mask):
+        self.D = D
+        d = pd.DataFrame({"s": D.s, "a": D.a, "r": D.rel_codes}); d = d[fit_mask[d.s]].drop_duplicates()
+        self.AR = sp.csr_matrix((np.ones(len(d), np.float32), (d.a.values, d.r.values)), shape=(D.NA, len(D.rel_uni)))
+
+    def row(self, r, exclude_own):
+        D = self.D
+        sess = [D.sid[x] for x in r.pre]
+        AR = self.AR
+        if exclude_own:                      # remove the row's own sessions' contribution (leave-row-out)
+            m = np.isin(D.s, sess)
+            dd = pd.DataFrame({"a": D.a[m], "r": D.rel_codes[m], "s": D.s[m]}).drop_duplicates()
+            OW = sp.csr_matrix((np.ones(len(dd), np.float32), (dd.a.values, dd.r.values)), shape=AR.shape)
+            AR = (AR - OW).tocsr(); AR.data = np.maximum(AR.data, 0); AR.eliminate_zeros()
+        res = np.zeros((6, 6, 2), np.float32)
+        cand_rel = [[set(AR[b].indices) for b in D.cc[c]] for c in r.cand]
+        for j, x in enumerate(sess):
+            a0, k = D.prefix_plays(x)
+            rels = set(D.rel_codes[a0:k]); Rset = set(np.unique(AR[np.unique(D.a[a0:k])].indices))
+            for kk in range(6):
+                res[j, kk, 0] = sum(len(rels & rb) > 0 for rb in cand_rel[kk])
+                res[j, kk, 1] = sum(len(Rset & rb) > 0 for rb in cand_rel[kk])
+        return res
+
+
+def release_features(D, rg, R, exclude_own):
+    return np.log1p(np.stack([rg.row(r, exclude_own) for _, r in R.iterrows()]))
 
 # --------------------------------------------------------------------------------------- model/decode
 LGB_PARAMS = dict(objective="binary", learning_rate=0.03, num_leaves=15, min_data_in_leaf=40, feature_fraction=0.7,
@@ -380,6 +503,21 @@ def main():
             Xtr = np.zeros((len(tr),) + F.shape[1:], np.float32)
         Xtr[fold == f] = F
         log(f"features fold {f}: {F.shape}")
+    # ---- learned histogram kernel + release-graph links (leave-row-out: a row's own six days never serve as neighbours)
+    fit_all = ~D.is_test
+    hk = HistKernel(D, fit_all); rg = ReleaseGraph(D, fit_all)
+    LKtr = lk_features(D, hk, tr, True); RLtr = release_features(D, rg, tr, True)
+    perm_id = {tuple(p): i for i, p in enumerate(PERMS)}
+    ptr = np.array([perm_id[tuple(y)] for y in Y])
+    Ztr = np.zeros((len(tr), 6, 6), np.float32)
+    for f in range(N_FOLDS):                                  # out-of-fold learned-kernel scores for the labelled rows
+        Ztr[fold == f] = lk_scores(lk_fit(LKtr[fold != f], ptr[fold != f]), LKtr[fold == f])
+    log(f"learned-kernel OOF (Hungarian only): {chance_corrected(np.array([linear_sum_assignment(-z)[1] for z in Ztr]), Y):.4f}")
+
+    def extra(Z, RL):
+        parts = [Z[..., None]] + [v[..., None] for v in rowwise_all(Z)] + [RL]
+        return np.concatenate(parts, -1).astype(np.float32)
+    Xtr = np.concatenate([Xtr, np.stack([extra(Ztr[i], RLtr[i]) for i in range(len(tr))])], -1)
     ytr = np.zeros((len(tr), 6, 6), np.float32)
     for i in range(len(tr)):
         ytr[i, np.arange(6), Y[i]] = 1
@@ -403,8 +541,11 @@ def main():
     fit_idx = np.where(~D.is_test)[0]
     bg = rng.choice(fit_idx[D.n1[fit_idx] >= 8], N_BG, replace=False)
     Xte = build_features(D, te, fit_idx, bg)
-    Zte = predict_pair(models, Xte)
-    pred = np.array([decode(z, temp) for z in Zte]) + 1
+    Zte = lk_scores(lk_fit(LKtr, ptr), lk_features(D, hk, te, False))
+    RLte = release_features(D, rg, te, False)
+    Xte = np.concatenate([Xte, np.stack([extra(Zte[i], RLte[i]) for i in range(len(te))])], -1)
+    Zpair = predict_pair(models, Xte)
+    pred = np.array([decode(z, temp) for z in Zpair]) + 1
     sub = pd.DataFrame(pred, columns=[f"match_{i}" for i in range(1, 7)])
     sub.insert(0, "id", te.id.values)
     sub = sample[["id"]].merge(sub, on="id", how="left")
