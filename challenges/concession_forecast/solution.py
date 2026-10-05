@@ -130,7 +130,7 @@ class PathModel(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.enc = AutoModel.from_pretrained(MODEL_NAME)
+        self.enc = AutoModel.from_pretrained(MODEL_NAME, torch_dtype=torch.float32)
         d = self.enc.config.hidden_size
         self.drop = torch.nn.Dropout(0.1)
         self.head = torch.nn.Linear(2 * d, 2 * 16)
