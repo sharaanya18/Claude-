@@ -50,6 +50,7 @@ All scores: chance-corrected metric, 5-fold by row, held-out rows' sessions remo
 | v3b | + candidate-pair AND co-occurrence kNN | 0.4715 | no gain, kept (harmless) |
 | v4 | + learned histogram kernel (OOF 0.429 alone) and release-graph links as stack features | LightGBM stack 0.481 | +0.01 |
 | v5 | listwise permutation-NLL MLP stacker (3 seeds, hid 32, 250 steps) replaces LightGBM | **0.5147 +- 0.0133** | +0.035, every fold; row/col-equivariant variant gave no gain (0.514 at 150 steps, overfits beyond) |
+| v6 | joint end-to-end training: histogram-kernel heads inside the network, trained together with the stacker on the permutation likelihood (exp28) | 1 head 0.495, 4 heads 0.500, 4 heads/150 steps 0.504, 8 heads/l2 .1 0.508 | NOT better than separate training (0.515): rejected |
 | (earlier final v3b) | solution.py: 3 kNN variants + NB-PMI x3 + transitions + traits + exclusive-bag + pair-AND -> LightGBM(3 seeds) -> permutation-posterior decode | **0.4715 +- 0.0140** (folds .453 .456 .477 .485 .486); argmax .445, Hungarian .468 | runtime ~2.8 min on 4 cores; two runs byte-identical |
 
 ## Error analysis
