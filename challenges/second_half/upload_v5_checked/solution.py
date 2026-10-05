@@ -16,7 +16,6 @@ from sklearn.preprocessing import normalize
 import torch
 SEED = 42
 N_FOLDS = 5
-N_FEAT_FOLDS = 20
 N_BG = 2000
 TRANS_WINDOW, TRANS_DECAY = (10, 0.8)
 T0 = time.time()
@@ -193,11 +192,6 @@ def build_features(D, R, fit_idx, bg_idx):
         eps = 0.1 * np.median(B[B > 0]) if (B > 0).any() else 1e-06
         LB = np.log(B + eps)
         Z[cfg[0]] = (np.log(S + eps) - LB.mean(0)) / (LB.std(0) + 1e-06)
-        if cfg[0] in ('art_bin', 'art_log'):
-            pen = np.sqrt(np.maximum(np.asarray(Tcols.sum(0)).ravel(), 1.0))[None, :]
-            Sp, Bp = (S / pen, B / pen)
-            for c in (0.3, 1.0):
-                Z[f'{cfg[0]}_pen{c}'] = np.log(Sp + c * np.median(Bp[Bp > 0]))
     A = transitions(D, fit_mask)
     colsum = np.asarray(A.sum(0)).ravel()[cols] + 1e-09
     rr, cc_ = ([], [])
@@ -446,10 +440,9 @@ def main():
     log(f'data: {D.NS} sessions, {D.NA} artists; train rows {len(tr)}, test rows {len(te)}')
     rng = np.random.RandomState(SEED)
     fold = rng.randint(0, N_FOLDS, len(tr))
-    ffold = rng.randint(0, N_FEAT_FOLDS, len(tr))
     Xtr = None
-    for f in range(N_FEAT_FOLDS):
-        R = tr[ffold == f]
+    for f in range(N_FOLDS):
+        R = tr[fold == f]
         held = np.zeros(D.NS, bool)
         for l in R.pre:
             for x in l:
@@ -459,7 +452,7 @@ def main():
         F = build_features(D, R, fit_idx, bg)
         if Xtr is None:
             Xtr = np.zeros((len(tr),) + F.shape[1:], np.float32)
-        Xtr[ffold == f] = F
+        Xtr[fold == f] = F
         log(f'features fold {f}: {F.shape}')
     fit_all = ~D.is_test
     hk = HistKernel(D, fit_all)

@@ -70,3 +70,9 @@ After the listwise permutation-likelihood MLP stacker (+0.035 over LightGBM on t
 - Prompt Compliance: "may need review", Medium confidence; the ONLY finding was prompt_runtime (solution.py:18 N_FOLDS = 5): 90-minute limit cannot be verified statically. Assessment otherwise: CPU-only, threads capped, fits only non-test sessions, genuine training, per-row decode. No rule violation flagged. Local runtime ~9 min on 4 cores.
 - Held-out Answer Ingestion: passed (High). Deterministic Execution: passed (High).
 - "All checks passed. Ready to submit." Submitting spends a credit; still below the AI baseline 0.6181 so not prize-pool eligible.
+
+## v7 (penalised kNN + 20 feature folds), Kaggle CPU run (2026-10-05)
+- Kaggle private CPU kernel (4 cores), comment-free solution.py: finished in 976 s; internal OOF Hungarian 0.5227, posterior 0.5210, per-fold mean 0.5208 +- 0.0221 (local run 0.5221 / 0.5208).
+- Kaggle submission.csv vs local: 99.92% of entries identical (1 of 597 rows differs): last-digit CPU differences, valid format.
+- upload/ now holds v7 (solution.py + Kaggle-run submission.csv). upload_v5_checked/ keeps the earlier version that the platform's pre-submission check scored 0.5514 public (checks passed).
+- Dataset was uploaded to a private Kaggle dataset (sharanya1805/second-half-data) at the owner's request; platform data terms not checked.
