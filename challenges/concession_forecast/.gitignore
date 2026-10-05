@@ -1,3 +1,7 @@
 working/
 *.npy
 diag*.py
+kg_*.out
+kaggle_data/
+kaggle_kernel/
+kaggle_out/
