@@ -1,7 +1,7 @@
 # Challenge notes: second_half
 
 ## Status
-- [x] contract  - [~] data audit (first pass: reports/audit1.py, exp1.py, exp2.py)  - [ ] strategist plan  - [ ] validation  - [ ] baseline  - [ ] experiments
+- [x] contract  - [x] data audit  - [x] plan  - [x] validation (5-fold by row, held-out sessions removed from fit)  - [x] baseline/final v1  - [~] experiments (plateau at 0.44)
 - [ ] review (compliance, runtime, red-team)  - [ ] presubmit  - [ ] submitted  - [ ] closed (lessons written)
 
 ## Contract (decision unit, valid answer, metric terms, constraints, bans, compute, runtime)
@@ -27,8 +27,27 @@ Primary (not yet built): several affinity scores (user-kNN with whole-day target
 Rejected: popularity, ids/order, anything using test first halves for fitting.
 
 ## Experiment log (id, hypothesis, change, CV mean +- std, per-fold, runtime, kept?, notes)
+All scores: chance-corrected metric, 5-fold by row, held-out rows' sessions removed from every fit, Hungarian decode unless noted.
+| id | change | CV | note |
+|---|---|---|---|
+| e1 | user-kNN cosine (idf^.5), target whole day | 0.36 (argmax 0.20) | joint assignment worth ~+0.15 |
+| e3 | log(S+eps) before Hungarian | 0.41 | nonlinear transform matters, row/col shifts do not |
+| e4 | directed transitions W<=10, recency weights | 0.28 | recency HURTS; signal is whole-prefix taste, not last plays |
+| e5 | kernel ridge / EASE-style first->second half | 0.30 (2 folds) | worse than kNN, slow; too little data for decorrelation |
+| e6 | exact recording-sequence (radio/playlist) linkage | 8% hit | no deterministic leak |
+| e7 | background-standardised scores (colz) | 0.43 (log 0.43) | no gain over plain log |
+| e8 | + release / recording tokens in kNN | art 0.398, art+rel 0.407 | tiny gain |
+| e10 | LightGBM pair scorer on 35 CF features | 0.43 (argmax 0.38) | calibrated but same Hungarian level |
+| e12 | listener traits: recording obscurity r=.53 true vs .05 wrong, empty-release r=.34 | traits alone 0.15; + CF 0.45 | real but overlaps with CF |
+| e15 | neural bag->second-half net (DAE), fold 0 | 0.13 / 0.24 with augmentation vs kNN 0.42 | too little data |
+| e16 | kNN hyper grid: tf log +0.04, gamma .5 +0.03, top-k hurts, fit size 25%/50%/100% = 0.24/0.31/0.35 | best single 0.42 | accuracy scales steeply with fit-set size |
+| e17 | SVD artist embeddings k=64/128/256 | 0.24/0.26/0.28 | not better than kNN |
+| **final** | solution.py: 3 kNN variants + transitions + traits -> LightGBM(3 seeds) -> permutation-posterior decode | **0.4365 +- 0.0167** (folds .432 .408 .458 .440 .445); argmax .399, Hungarian .433 | runtime ~2.5 min on 4 cores |
 
 ## Error analysis
+
+## Honest ceiling statement
+The target of 0.8 (AI baseline 0.7, per the owner) was NOT reached: best honest OOF is 0.44. Every representation tried (kNN, item transitions, ridge, SVD, neural, trait features) plateaus at 0.40-0.45, and accuracy grows steeply with the amount of fit data (the one lever that would help, the test first halves, is banned by the rules). If 0.7+ is attainable there is a signal I have not found; candidate directions not yet tried: more trait families, row-synthesis from fit sessions to enlarge the stacker training set (grey: counts as solver-built training data), many more kNN variants.
 
 ## Submission history (sub, based on exp, public LB, credits left, gap, notes)
 
