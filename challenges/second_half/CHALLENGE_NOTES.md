@@ -42,12 +42,18 @@ All scores: chance-corrected metric, 5-fold by row, held-out rows' sessions remo
 | e15 | neural bag->second-half net (DAE), fold 0 | 0.13 / 0.24 with augmentation vs kNN 0.42 | too little data |
 | e16 | kNN hyper grid: tf log +0.04, gamma .5 +0.03, top-k hurts, fit size 25%/50%/100% = 0.24/0.31/0.35 | best single 0.42 | accuracy scales steeply with fit-set size |
 | e17 | SVD artist embeddings k=64/128/256 | 0.24/0.26/0.28 | not better than kNN |
-| **final** | solution.py: 3 kNN variants + transitions + traits -> LightGBM(3 seeds) -> permutation-posterior decode | **0.4365 +- 0.0167** (folds .432 .408 .458 .440 .445); argmax .399, Hungarian .433 | runtime ~2.5 min on 4 cores |
+| e18 | session-level naive-Bayes PMI item-item (alpha 20, mean) alone | 0.4165 | comparable to kNN, different flavour |
+| e19 | prefix scalars (length, span, gaps) x candidate popularity into the stack | 0.451 vs 0.451 | no gain |
+| v2 | + NB-PMI (alpha 20 and 3) features in the stack | 0.4670 +- 0.024 | +0.03, positive in all 5 folds: diversity of base scorers pays |
+| v2b | + release / recording-level NB | 0.4628 | no gain, removed |
+| v3 | + row-exclusive prefix bags (artists unique to that person within the row), NB and kNN | 0.4717 | small |
+| v3b | + candidate-pair AND co-occurrence kNN | 0.4715 | no gain, kept (harmless) |
+| **final (v3b)** | solution.py: 3 kNN variants + NB-PMI x3 + transitions + traits + exclusive-bag + pair-AND -> LightGBM(3 seeds) -> permutation-posterior decode | **0.4715 +- 0.0140** (folds .453 .456 .477 .485 .486); argmax .445, Hungarian .468 | runtime ~2.8 min on 4 cores; two runs byte-identical |
 
 ## Error analysis
 
 ## Honest ceiling statement
-The target of 0.8 (AI baseline 0.7, per the owner) was NOT reached: best honest OOF is 0.44. Every representation tried (kNN, item transitions, ridge, SVD, neural, trait features) plateaus at 0.40-0.45, and accuracy grows steeply with the amount of fit data (the one lever that would help, the test first halves, is banned by the rules). If 0.7+ is attainable there is a signal I have not found; candidate directions not yet tried: more trait families, row-synthesis from fit sessions to enlarge the stacker training set (grey: counts as solver-built training data), many more kNN variants.
+LEADERBOARD CONTEXT (screenshot 2026-10-05): AI baseline 0.6181, current top public score 0.5098 (1 solver), 6/6 credits. The owner's 0.7/0.8 figures were wrong. Best honest OOF here is 0.47, so below the AI baseline (which is the bar for the prize pool) and just under the current top public score. Every representation tried (kNN, item transitions, ridge, SVD, neural, trait features) plateaus at 0.40-0.45, and accuracy grows steeply with the amount of fit data (the one lever that would help, the test first halves, is banned by the rules). If 0.7+ is attainable there is a signal I have not found; candidate directions not yet tried: more trait families, row-synthesis from fit sessions to enlarge the stacker training set (grey: counts as solver-built training data), many more kNN variants.
 
 ## Submission history (sub, based on exp, public LB, credits left, gap, notes)
 

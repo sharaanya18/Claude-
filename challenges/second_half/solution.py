@@ -84,11 +84,18 @@ class Data:
         cr = pd.DataFrame({"s": self.s, "a": self.rel_codes, "h": self.h})
         self.Ra = self._mat(cr.groupby(["s", "a"]).size().reset_index(name="c"), self.rel_codes.max() + 1)
         self.R1 = self._mat(cr[cr.h == 1].groupby(["s", "a"]).size().reset_index(name="c"), self.rel_codes.max() + 1)
+        cq = pd.DataFrame({"s": self.s, "a": self.rec_codes, "h": self.h})
+        self.Qa = self._mat(cq.groupby(["s", "a"]).size().reset_index(name="c"), len(self.rec_uni))
+        self.Q1 = self._mat(cq[cq.h == 1].groupby(["s", "a"]).size().reset_index(name="c"), len(self.rec_uni))
         self.n1 = np.asarray(self.C1.sum(1)).ravel()
         # continuation -> its two artists in rank order, and first-play recording / release / artist codes
         C = C.sort_values(["continuation", "rank"])
         self.cc = C.groupby("continuation").artist.apply(lambda x: [self.aid[a] for a in x]).to_dict()
         self.C = C
+        recmap = {r: i for i, r in enumerate(self.rec_uni)}; relmap = {r: i for i, r in enumerate(self.rel_uni)}
+        self.crec = C.groupby("continuation").recording.apply(lambda x: [recmap.get(r, -1) for r in x]).to_dict()
+        self.crel = C.groupby("continuation").release.apply(
+            lambda x: [relmap.get(r, -1) if isinstance(r, str) else -1 for r in x]).to_dict()
         # per-play session start offsets for fast slicing (L is sorted by session then position)
         starts = np.r_[0, np.where(self.s[1:] != self.s[:-1])[0] + 1, len(self.s)]
         self.span = {self.s[starts[i]]: (starts[i], starts[i + 1]) for i in range(len(starts) - 1)}
@@ -134,13 +141,13 @@ def tf_apply(X, kind):
     return X.log1p()
 
 
-def knn_scores(D, fit_idx, query_idx, Tcols, cfg, exclude_self=False):
+def knn_scores(D, fit_idx, query_idx, Tcols, cfg, exclude_self=False, Qmat=None):
     """Similarity-weighted candidate-artist counts for each query prefix (rows) x candidate column."""
     name, space, tf, w, gam = cfg
     P1, Pall = (D.C1, D.Ca) if space == "art" else (D.R1, D.Ra)
     W = idf_diag(Pall, fit_idx, w)
     F = normalize(tf_apply(Pall[fit_idx], tf) @ W)
-    Q = normalize(tf_apply(P1[query_idx], tf) @ W)
+    Q = normalize(tf_apply(P1[query_idx] if Qmat is None else Qmat, tf) @ W)
     K = (Q @ F.T).toarray()
     if exclude_self:
         pos = {x: i for i, x in enumerate(fit_idx)}
@@ -148,6 +155,22 @@ def knn_scores(D, fit_idx, query_idx, Tcols, cfg, exclude_self=False):
             K[r, pos[x]] = 0.0
     K = K ** gam
     return np.asarray(Tcols.T.dot(K.T)).T
+
+
+def nb_scores(D, fit_idx, query_idx, cols, alpha=20.0, space="art", Qmat=None):
+    """Naive-Bayes style item-item score: mean over the prefix artists a of log[P(b|a)/P(b)], with P(b|a) estimated from
+    session co-occurrence in fit days and shrunk towards P(b) with pseudo-count alpha."""
+    Xall, X1 = {"art": (D.Ca, D.C1), "rel": (D.Ra, D.R1), "rec": (D.Qa, D.Q1)}[space]
+    Xf = Xall[fit_idx].copy(); Xf.data[:] = 1.0
+    N = len(fit_idx); df = np.asarray(Xf.sum(0)).ravel()
+    Pm = (X1[query_idx] if Qmat is None else Qmat).copy(); Pm.data[:] = 1.0
+    A = np.unique(Pm.indices); Pm = Pm[:, A].tocsr()
+    G = (Xf[:, A].T @ Xf[:, cols]).tocoo()
+    pb = np.maximum(df[cols], 0.5) / N; dfa = df[A]
+    obs = np.log((G.data + alpha * pb[G.col]) / (dfa[G.row] + alpha) / pb[G.col]) - np.log(alpha / (dfa[G.row] + alpha))
+    Lm = sp.csr_matrix((obs, (G.row, G.col)), shape=(len(A), len(cols)))
+    S = (Pm @ Lm).toarray() + np.asarray(Pm @ np.log(alpha / (dfa + alpha)))[:, None]
+    return S / np.maximum(np.asarray(Pm.sum(1)), 1)
 
 
 def trait_arrays(D, fit_mask, C):
@@ -182,6 +205,23 @@ def rowwise(v):
     return out
 
 
+def exclusive_bags(D, Pidx):
+    """Per row: each prefix keeps only the artists that occur in no other prefix of the same row (what makes that
+    person different from the five look-alikes).  Uses only the row's own six prefixes."""
+    rows, cols_, vals = [], [], []
+    for r0 in range(0, len(Pidx), 6):
+        bags = [D.C1[x].tocoo() for x in Pidx[r0:r0 + 6]]
+        cnt = {}
+        for b in bags:
+            for a in b.col:
+                cnt[a] = cnt.get(a, 0) + 1
+        for j, b in enumerate(bags):
+            for a, v in zip(b.col, b.data):
+                if cnt[a] == 1:
+                    rows.append(r0 + j); cols_.append(a); vals.append(v)
+    return sp.csr_matrix((vals, (rows, cols_)), shape=(len(Pidx), D.NA), dtype=np.float32)
+
+
 def build_features(D, R, fit_idx, bg_idx):
     """Pair features (n_rows, 6 prefixes, 6 candidates, F) for rows R using only fit sessions as training material."""
     fit_mask = np.zeros(D.NS, bool); fit_mask[fit_idx] = True
@@ -205,6 +245,17 @@ def build_features(D, R, fit_idx, bg_idx):
     Pm = sp.csr_matrix((np.ones(len(rr), np.float32), (rr, cc_)), shape=(len(Pidx), D.NA))
     Pm = sp.diags(1 / np.asarray(Pm.sum(1)).ravel()) @ Pm
     TR = np.log((Pm @ A[:, cols]).toarray() / colsum + 1e-3)
+    EX = exclusive_bags(D, Pidx)
+    NB = {"art20": nb_scores(D, fit_idx, Pidx, cols), "art3": nb_scores(D, fit_idx, Pidx, cols, alpha=3.0),
+          "ex20": nb_scores(D, fit_idx, Pidx, cols, Qmat=EX)}
+    KX = knn_scores(D, fit_idx, Pidx, Tcols, KNN_CONFIGS[1], Qmat=EX)
+    # candidate-centric evidence: fit days that contain BOTH artists of a continuation (consecutive new artists of one
+    # person), weighted by how similar the prefix is to those days
+    ucand = sorted({c for cl in R.cand for c in cl}); um = {c: i for i, c in enumerate(ucand)}
+    Tc = Tcols.tocsc()
+    pair_cols = [Tc[:, cm[D.cc[c][0]]].multiply(Tc[:, cm[D.cc[c][1]]]) for c in ucand]
+    Tpair = sp.hstack(pair_cols).tocsr()
+    KP = knn_scores(D, fit_idx, Pidx, Tpair, KNN_CONFIGS[1])
     pl, cvals = trait_arrays(D, fit_mask, D.C)
     out = []
     for ri, (_, r) in enumerate(R.iterrows()):
@@ -215,6 +266,14 @@ def build_features(D, R, fit_idx, bg_idx):
             q = np.stack([Z[nm][sl][:, cidx[:, 0]], Z[nm][sl][:, cidx[:, 1]]], -1)    # (6,6,2)
             mean, mx = q.mean(-1), q.max(-1)
             F += [mean, mx] + rowwise(mean) + rowwise(mx)[:2]
+        for key in ("art20", "art3", "ex20"):
+            nq = np.stack([NB[key][sl][:, cidx[:, 0]], NB[key][sl][:, cidx[:, 1]]], -1)
+            nmean = nq.mean(-1)
+            F += [nmean] + rowwise(nmean)
+        kxq = np.log(np.stack([KX[sl][:, cidx[:, 0]], KX[sl][:, cidx[:, 1]]], -1).mean(-1) + 1e-3)
+        F += [kxq] + rowwise(kxq)
+        kpq = np.log(np.stack([KP[sl][:, um[c]] for c in r.cand], -1) + 1e-3)
+        F += [kpq] + rowwise(kpq)
         tq = np.stack([TR[sl][:, cidx[:, 0]], TR[sl][:, cidx[:, 1]]], -1).mean(-1)
         F += [tq] + rowwise(tq)
         # listener traits: prefix distribution vs candidate first plays
