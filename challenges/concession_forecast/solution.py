@@ -29,7 +29,8 @@ TOPIC_BUDGET = 96
 PRESSURE_BUDGET = 160
 N_FOLDS = 4
 EPOCHS = 2
-BATCH = 16
+BATCH = 8
+ACCUM = 2
 LR = 2e-05
 WARMUP = 0.1
 AUX_W = 0.5
@@ -130,7 +131,7 @@ class PathModel(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.enc = AutoModel.from_pretrained(MODEL_NAME, torch_dtype=torch.float32)
+        self.enc = AutoModel.from_pretrained(MODEL_NAME, dtype=torch.float32)
         d = self.enc.config.hidden_size
         self.drop = torch.nn.Dropout(0.1)
         self.head = torch.nn.Linear(2 * d, 2 * 16)
@@ -159,7 +160,7 @@ def train_fold(seqs, kinds, ys, pad_id, tag):
     seed_everything()
     model = PathModel().to(DEVICE)
     opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=0.01)
-    n_steps = EPOCHS * ((len(seqs) + BATCH - 1) // BATCH)
+    n_steps = EPOCHS * ((len(seqs) + BATCH * ACCUM - 1) // (BATCH * ACCUM))
     sched = get_cosine_schedule_with_warmup(opt, int(WARMUP * n_steps), n_steps)
     scaler = torch.amp.GradScaler('cuda')
     path_id = torch.tensor((ys * np.array([8, 4, 2, 1])).sum(1), device=DEVICE)
@@ -170,7 +171,8 @@ def train_fold(seqs, kinds, ys, pad_id, tag):
         model.train()
         order = rng.permutation(len(seqs))
         tot = 0.0
-        for s in range(0, len(order), BATCH):
+        opt.zero_grad(set_to_none=True)
+        for k, s in enumerate(range(0, len(order), BATCH)):
             b = order[s:s + BATCH]
             ids, mask = collate([seqs[i] for i in b], pad_id)
             bt = torch.as_tensor(b, device=DEVICE)
@@ -179,14 +181,15 @@ def train_fold(seqs, kinds, ys, pad_id, tag):
             logp = torch.log_softmax(logits.float(), -1)
             marg = path_marginals(logp).clamp(1e-06, 1 - 1e-06)
             loss = F.nll_loss(logp, path_id[bt]) + AUX_W * F.binary_cross_entropy(marg, yt[bt])
-            opt.zero_grad(set_to_none=True)
-            scaler.scale(loss).backward()
-            scaler.unscale_(opt)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            scaler.step(opt)
-            scaler.update()
-            sched.step()
+            scaler.scale(loss / ACCUM).backward()
             tot += loss.item() * len(b)
+            if (k + 1) % ACCUM == 0 or s + BATCH >= len(order):
+                scaler.unscale_(opt)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                scaler.step(opt)
+                scaler.update()
+                sched.step()
+                opt.zero_grad(set_to_none=True)
         log(f'[{tag}] epoch {ep + 1}/{EPOCHS} loss {tot / len(order):.4f}')
     return model
 
