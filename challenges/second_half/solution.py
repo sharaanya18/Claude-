@@ -49,6 +49,7 @@ N_FOLDS = 5                 # row folds for out-of-fold features / honest CV
 N_BG = 2000                 # background prefixes per fit set (score standardisation)
 LGB_ROUNDS = 400
 LGB_SEEDS = (0, 1, 2)
+FINAL_STACK = "mlp"        # which OOF-validated stacker feeds the submission: lgbm | mlp | blend
 TRANS_WINDOW, TRANS_DECAY = 10, 0.8
 T0 = time.time()
 
@@ -433,6 +434,35 @@ def predict_pair(models, X):
     return np.mean([m.predict(X.reshape(-1, F), raw_score=True) for m in models], 0).reshape(-1, 6, 6)
 
 
+MLP_HID, MLP_WD, MLP_STEPS, MLP_SEEDS = 32, 1e-2, 250, (0, 1, 2)
+
+
+def fit_mlp(X, perm_idx):
+    """Listwise stacker: a small MLP gives each (prefix, candidate) pair a logit; trained with the exact likelihood of the
+    true permutation among the 720 (loss matches the joint decode).  Returns (feature mean, std, nets)."""
+    F = X.shape[-1]; mu = X.reshape(-1, F).mean(0); sd = X.reshape(-1, F).std(0) + 1e-6
+    Xt = torch.tensor((X - mu) / sd).float(); idx = torch.tensor(perm_idx); P = torch.tensor(PERMS); ar = torch.arange(6)
+    nets = []
+    for sd_ in MLP_SEEDS:
+        torch.manual_seed(sd_)
+        net = torch.nn.Sequential(torch.nn.Dropout(0.2), torch.nn.Linear(F, MLP_HID), torch.nn.GELU(), torch.nn.Linear(MLP_HID, 1))
+        opt = torch.optim.AdamW(net.parameters(), lr=3e-3, weight_decay=MLP_WD)
+        for _ in range(MLP_STEPS):
+            net.train(); opt.zero_grad()
+            ll = net(Xt).squeeze(-1)[:, ar[None, :], P].sum(-1)
+            loss = -(ll.gather(1, idx[:, None]).squeeze(1) - torch.logsumexp(ll, 1)).mean()
+            loss.backward(); opt.step()
+        nets.append(net.eval())
+    return mu, sd, nets
+
+
+def predict_mlp(model, X):
+    mu, sd, nets = model
+    Xt = torch.tensor((X - mu) / sd).float()
+    with torch.no_grad():
+        return np.mean([n(Xt).squeeze(-1).numpy() for n in nets], 0)
+
+
 PERMS = np.array(list(itertools.permutations(range(6))))          # 720 x 6, perms[p][i] = candidate of prefix i
 
 
@@ -522,29 +552,36 @@ def main():
     for i in range(len(tr)):
         ytr[i, np.arange(6), Y[i]] = 1
 
-    # ---- honest CV of the pair scorer (features were built out-of-fold), and decode temperature on OOF
-    oof = np.zeros((len(tr), 6, 6))
+    # ---- honest CV of both stackers (features were built out-of-fold) and of their blend
+    oof_l = np.zeros((len(tr), 6, 6)); oof_m = np.zeros((len(tr), 6, 6))
     for f in range(N_FOLDS):
-        oof[fold == f] = predict_pair(fit_pair_model(Xtr[fold != f], ytr[fold != f]), Xtr[fold == f])
+        oof_l[fold == f] = predict_pair(fit_pair_model(Xtr[fold != f], ytr[fold != f]), Xtr[fold == f])
+        oof_m[fold == f] = predict_mlp(fit_mlp(Xtr[fold != f], ptr[fold != f]), Xtr[fold == f])
         log(f"cv fold {f} done")
-    temps = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0]
-    nll = [true_perm_nll(oof, Y, t) for t in temps]; temp = temps[int(np.argmin(nll))]
-    hung = np.array([linear_sum_assignment(-z)[1] for z in oof])
-    post = np.array([decode(z, temp) for z in oof])
-    per_fold = [chance_corrected(post[fold == f], Y[fold == f]) for f in range(N_FOLDS)]
-    log(f"OOF score: argmax {chance_corrected(oof.argmax(2), Y):.4f} hungarian {chance_corrected(hung, Y):.4f} "
-        f"posterior-decode {chance_corrected(post, Y):.4f} (temp {temp}); per-fold {np.round(per_fold, 4)} "
-        f"mean {np.mean(per_fold):.4f} std {np.std(per_fold):.4f}")
+    zs = lambda z: (z - z.mean()) / z.std()
+    cands = {"lgbm": oof_l, "mlp": oof_m, "blend": 0.5 * zs(oof_l) + 0.5 * zs(oof_m)}
+    temps = [0.05, 0.1, 0.15, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0]
+    best = {}
+    for nm, z in cands.items():
+        nll = [true_perm_nll(z, Y, t) for t in temps]; t_ = temps[int(np.argmin(nll))]
+        post = np.array([decode(zz, t_) for zz in z]); best[nm] = t_
+        pf = [chance_corrected(post[fold == f], Y[fold == f]) for f in range(N_FOLDS)]
+        log(f"OOF {nm}: argmax {chance_corrected(z.argmax(2), Y):.4f} hungarian "
+            f"{chance_corrected(np.array([linear_sum_assignment(-zz)[1] for zz in z]), Y):.4f} posterior {chance_corrected(post, Y):.4f} "
+            f"(temp {t_}) per-fold {np.round(pf, 4)} mean {np.mean(pf):.4f} std {np.std(pf):.4f}")
+    temp = best[FINAL_STACK]
 
     # ---- final model on all labelled rows; test features use every non-test session as fit material
-    models = fit_pair_model(Xtr, ytr)
+    models = fit_pair_model(Xtr, ytr); mlp_model = fit_mlp(Xtr, ptr)
     fit_idx = np.where(~D.is_test)[0]
     bg = rng.choice(fit_idx[D.n1[fit_idx] >= 8], N_BG, replace=False)
     Xte = build_features(D, te, fit_idx, bg)
     Zte = lk_scores(lk_fit(LKtr, ptr), lk_features(D, hk, te, False))
     RLte = release_features(D, rg, te, False)
     Xte = np.concatenate([Xte, np.stack([extra(Zte[i], RLte[i]) for i in range(len(te))])], -1)
-    Zpair = predict_pair(models, Xte)
+    zl, zm = predict_pair(models, Xte), predict_mlp(mlp_model, Xte)
+    # z-score each stacker with the statistics of its own OOF logits so the blend matches what was validated
+    Zpair = {"lgbm": zl, "mlp": zm, "blend": 0.5 * (zl - oof_l.mean()) / oof_l.std() + 0.5 * (zm - oof_m.mean()) / oof_m.std()}[FINAL_STACK]
     pred = np.array([decode(z, temp) for z in Zpair]) + 1
     sub = pd.DataFrame(pred, columns=[f"match_{i}" for i in range(1, 7)])
     sub.insert(0, "id", te.id.values)
