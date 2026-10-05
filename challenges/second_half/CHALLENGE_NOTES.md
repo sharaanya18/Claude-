@@ -48,13 +48,24 @@ All scores: chance-corrected metric, 5-fold by row, held-out rows' sessions remo
 | v2b | + release / recording-level NB | 0.4628 | no gain, removed |
 | v3 | + row-exclusive prefix bags (artists unique to that person within the row), NB and kNN | 0.4717 | small |
 | v3b | + candidate-pair AND co-occurrence kNN | 0.4715 | no gain, kept (harmless) |
-| **final (v3b)** | solution.py: 3 kNN variants + NB-PMI x3 + transitions + traits + exclusive-bag + pair-AND -> LightGBM(3 seeds) -> permutation-posterior decode | **0.4715 +- 0.0140** (folds .453 .456 .477 .485 .486); argmax .445, Hungarian .468 | runtime ~2.8 min on 4 cores; two runs byte-identical |
+| v4 | + learned histogram kernel (OOF 0.429 alone) and release-graph links as stack features | LightGBM stack 0.481 | +0.01 |
+| v5 | listwise permutation-NLL MLP stacker (3 seeds, hid 32, 250 steps) replaces LightGBM | **0.5147 +- 0.0133** | +0.035, every fold; row/col-equivariant variant gave no gain (0.514 at 150 steps, overfits beyond) |
+| (earlier final v3b) | solution.py: 3 kNN variants + NB-PMI x3 + transitions + traits + exclusive-bag + pair-AND -> LightGBM(3 seeds) -> permutation-posterior decode | **0.4715 +- 0.0140** (folds .453 .456 .477 .485 .486); argmax .445, Hungarian .468 | runtime ~2.8 min on 4 cores; two runs byte-identical |
 
 ## Error analysis
 
 ## Honest ceiling statement
 LEADERBOARD CONTEXT (screenshot 2026-10-05): AI baseline 0.6181, current top public score 0.5098 (1 solver), 6/6 credits. The owner's 0.7/0.8 figures were wrong. Best honest OOF here is 0.47, so below the AI baseline (which is the bar for the prize pool) and just under the current top public score. Every representation tried (kNN, item transitions, ridge, SVD, neural, trait features) plateaus at 0.40-0.45, and accuracy grows steeply with the amount of fit data (the one lever that would help, the test first halves, is banned by the rules). If 0.7+ is attainable there is a signal I have not found; candidate directions not yet tried: more trait families, row-synthesis from fit sessions to enlarge the stacker training set (grey: counts as solver-built training data), many more kNN variants.
 
+## Honest ceiling statement (update 2)
+After the listwise permutation-likelihood MLP stacker (+0.035 over LightGBM on the same features), the final local OOF is 0.5147 +- 0.0133 and the platform's pre-submission CSV check scored 0.5514 (public subset), above the top public score seen earlier (0.5098) but below the AI baseline 0.6181.
+
 ## Submission history (sub, based on exp, public LB, credits left, gap, notes)
 
 ## Key insights (what was unique, biggest gain, biggest surprise, what to do differently)
+
+## Platform pre-submission checks (screenshot, comment-free solution.py, 2026-10-05)
+- CSV Score Validation: 0.5514450867052024 (public subset) vs local OOF 0.5147 +- 0.0133: gap +0.037, same direction as a lucky/easier public subset; local CV not contradicted.
+- Prompt Compliance: "may need review", Medium confidence; the ONLY finding was prompt_runtime (solution.py:18 N_FOLDS = 5): 90-minute limit cannot be verified statically. Assessment otherwise: CPU-only, threads capped, fits only non-test sessions, genuine training, per-row decode. No rule violation flagged. Local runtime ~9 min on 4 cores.
+- Held-out Answer Ingestion: passed (High). Deterministic Execution: passed (High).
+- "All checks passed. Ready to submit." Submitting spends a credit; still below the AI baseline 0.6181 so not prize-pool eligible.
