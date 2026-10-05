@@ -82,3 +82,7 @@ After the listwise permutation-likelihood MLP stacker (+0.035 over LightGBM on t
 - Next-play transition features (artist/release/recording, last 1-5 plays, leave-row-out): discriminative (true pairs 29% nonzero vs 16% wrong for last-5 artist transition) but weak alone (0.15 Hungarian) and NO gain in the stack: MLP 0.5221 -> 0.5219 (marginal decode 0.5208 -> 0.5241, noise).
 - Reference-solution blend (MLP majority + linear listwise + hist-GBDT, probability-space, weight grid with MLP >= others): linear 0.507, GBDT 0.491; best blend = MLP alone (0.5241). Rejected.
 - Plateau: every lever since v5 moves CV by <= 0.01. Expected public for v7 ~0.555-0.56 (v5: CV 0.515 -> public 0.5514). AI baseline 0.6181 NOT reached.
+
+## Decision (owner, 2026-10-05)
+- Owner: "If the description bans it, don't do it." Pseudo-rows built from unused training days are dropped: the description bans solver-generated synthetic training data, and solver-assembled rows fall under the conservative reading.
+- Final candidate: v7 in upload/ (comment-free solution.py + Kaggle-run submission.csv), CV 0.521, expected public ~0.555-0.56. Fallback: upload_v5_checked/ (public 0.5514, all platform checks passed).
