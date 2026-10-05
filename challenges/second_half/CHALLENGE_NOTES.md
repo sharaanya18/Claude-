@@ -86,3 +86,9 @@ After the listwise permutation-likelihood MLP stacker (+0.035 over LightGBM on t
 ## Decision (owner, 2026-10-05)
 - Owner: "If the description bans it, don't do it." Pseudo-rows built from unused training days are dropped: the description bans solver-generated synthetic training data, and solver-assembled rows fall under the conservative reading.
 - Final candidate: v7 in upload/ (comment-free solution.py + Kaggle-run submission.csv), CV 0.521, expected public ~0.555-0.56. Fallback: upload_v5_checked/ (public 0.5514, all platform checks passed).
+
+## BREAKTHROUGH: item2vec artist embeddings (2026-10-05)
+- Leaderboard update: 5 solvers above AI baseline (0.6231-0.6647), 5 more at 0.59-0.61 -> 0.6+ reachable; my "only banned data gets there" hypothesis was wrong.
+- Diagnostics that ruled things out: stacker learning curve flat (25%/50%/75%/100% rows: .490/.510/.518/.522); errors uniform across candidate popularity / prefix coverage; adding held-out first halves (emulating the banned test-first-half fitting) only +0.006 for item-item cosine; drift matrix (first->new second half) 0.22; recency weighting +0.01 at most; item-item cosine alpha .5 = 0.461 alone.
+- exp40: gensim skip-gram Word2Vec on fit-day artist sequences (consecutive repeats collapsed), prefix = mean of unit artist vectors, score = cosine with mean candidate vector: w5 d64 0.5317, w20 d128 0.5445, w50 d128 0.5314 ALONE (5-fold, 80% fit) vs whole v7 stack 0.522.
+- Determinism plan for the script: workers=1 and a fixed hashfxn (Python's str hash is randomised per process).
