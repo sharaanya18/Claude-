@@ -16,6 +16,8 @@ Pipeline
    the prefix bag of artists (or releases) to every fit day, then the similarity-weighted count of the candidate artist
    in those days.  Three kNN variants, a sequential artist->artist transition score and listener-trait features
    (how obscure a listener's recordings are, missing-release habit).
+1b. Skip-gram artist embeddings (item2vec, gensim, single worker) learned from the play order of fit days; prefix-candidate
+   cosine features.
 2. Every score is standardised against a background of random fit prefixes (removes candidate popularity), then
    normalised within the row (z-scores and ranks along both axes).
 3. LightGBM binary pair scorer on those features, out-of-fold features built with the held-out rows' sessions removed
@@ -42,8 +44,11 @@ import scipy.sparse as sp
 from scipy.optimize import linear_sum_assignment
 from sklearn.preprocessing import normalize
 import torch
+import zlib
+from gensim.models import Word2Vec
 
 SEED = 42
+W2V = dict(sg=1, window=20, vector_size=256, epochs=15, sample=1e-4, negative=10, min_count=1)   # item2vec settings
 N_FOLDS = 5                 # row folds for the honest CV of the stacker
 N_FEAT_FOLDS = 20           # row folds for out-of-fold neighbour features (each keeps ~95% of the days as fit material)
 N_BG = 2000                 # background prefixes per fit set (score standardisation)
@@ -421,6 +426,50 @@ class ReleaseGraph:
 def release_features(D, rg, R, exclude_own):
     return np.log1p(np.stack([rg.row(r, exclude_own) for _, r in R.iterrows()]))
 
+
+
+# ------------------------------------------------------------------------------- item2vec embeddings
+def _crc_hash(s):
+    """Deterministic word hash for gensim's vector initialisation (Python's own str hash is salted per process)."""
+    return zlib.crc32(str(s).encode("utf-8"))
+
+
+def train_item2vec(D, fit_idx):
+    """Skip-gram artist embeddings learned from the play order of fit days only (consecutive repeats of one artist are
+    collapsed so a context window spans different artists).  Single worker + fixed hash => identical vectors every run."""
+    fit = np.zeros(D.NS, bool); fit[fit_idx] = True
+    sents = []
+    for s_ in fit_idx:
+        a, b = D.span[s_]
+        seq = D.a[a:b]
+        keep = np.r_[True, seq[1:] != seq[:-1]]
+        sents.append([str(v) for v in seq[keep]])
+    m = Word2Vec(sents, workers=1, seed=SEED, hashfxn=_crc_hash, **W2V)
+    V = m.wv.vectors / np.linalg.norm(m.wv.vectors, axis=1, keepdims=True)
+    return V, m.wv.key_to_index
+
+
+def emb_features(D, R, V, key):
+    """(n_rows, 6, 6, 12): cosine of the prefix's mean artist vector with the candidate (mean / rank-1 / rank-2 artist),
+    best single prefix-artist match, and within-row normalisations of the two main scores."""
+    out = []
+    for _, r in R.iterrows():
+        P, Ps = [], []
+        for x in r.pre:
+            a0, k = D.prefix_plays(D.sid[x])
+            ids = [key[t] for t in {str(v) for v in D.a[a0:k]} if t in key]
+            P.append(V[ids].mean(0) if ids else np.zeros(V.shape[1]))
+            Ps.append(V[ids] if ids else np.zeros((1, V.shape[1])))
+        P = np.array(P); P /= np.linalg.norm(P, axis=1, keepdims=True) + 1e-9
+        cm = np.zeros((6, 6)); c1 = np.zeros((6, 6)); c2 = np.zeros((6, 6)); mx = np.zeros((6, 6))
+        for k, c in enumerate(r.cand):
+            vs = np.array([V[key[str(a)]] if str(a) in key else np.zeros(V.shape[1]) for a in D.cc[c]])
+            cm[:, k] = P @ vs.mean(0); c1[:, k] = P @ vs[0]; c2[:, k] = P @ vs[1]
+            for j in range(6):
+                mx[j, k] = (Ps[j] @ vs.T).max()
+        out.append(np.stack([cm, c1, c2, mx] + rowwise(cm) + rowwise(mx), -1))
+    return np.stack(out).astype(np.float32)
+
 # --------------------------------------------------------------------------------------- model/decode
 MLP_HID, MLP_WD, MLP_STEPS, MLP_SEEDS = 32, 1e-2, 250, (0, 1, 2)
 
@@ -537,6 +586,21 @@ def main():
         parts = [Z[..., None]] + [v[..., None] for v in rowwise_all(Z)] + [RL]
         return np.concatenate(parts, -1).astype(np.float32)
     Xtr = np.concatenate([Xtr, np.stack([extra(Ztr[i], RLtr[i]) for i in range(len(tr))])], -1)
+    # ---- item2vec features, out-of-fold on the stacker folds (embeddings never see the held-out rows' days)
+    Etr = None
+    for f in range(N_FOLDS):
+        held = np.zeros(D.NS, bool)
+        for l in tr.pre[fold == f]:
+            for x in l:
+                held[D.sid[x]] = True
+        V, key = train_item2vec(D, np.where(~D.is_test & ~held)[0])
+        E = emb_features(D, tr[fold == f], V, key)
+        if Etr is None:
+            Etr = np.zeros((len(tr),) + E.shape[1:], np.float32)
+        Etr[fold == f] = E
+        log(f"item2vec fold {f} done")
+    log(f"item2vec cosine alone (Hungarian): {chance_corrected(np.array([linear_sum_assignment(-e[..., 0])[1] for e in Etr]), Y):.4f}")
+    Xtr = np.concatenate([Xtr, Etr], -1)
 
     # ---- honest CV of the listwise stacker (features were built out-of-fold) and decode temperature on OOF logits
     oof = np.zeros((len(tr), 6, 6))
@@ -560,6 +624,8 @@ def main():
     Zte = lk_scores(lk_fit(LKtr, ptr), lk_features(D, hk, te, False))
     RLte = release_features(D, rg, te, False)
     Xte = np.concatenate([Xte, np.stack([extra(Zte[i], RLte[i]) for i in range(len(te))])], -1)
+    V, key = train_item2vec(D, np.where(~D.is_test)[0])
+    Xte = np.concatenate([Xte, emb_features(D, te, V, key)], -1)
     Zpair = predict_mlp(mlp_model, Xte)
     pred = np.array([decode(z, temp) for z in Zpair]) + 1
     sub = pd.DataFrame(pred, columns=[f"match_{i}" for i in range(1, 7)])
