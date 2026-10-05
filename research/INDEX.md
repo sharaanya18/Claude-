@@ -11,3 +11,9 @@ Public-source research done to strengthen the Eris playbook. Evidence tags: [S] 
 | F_own_retrospective.md | Own evidence (3 challenges) | process errors and the template that would have saved the most time |
 
 Out of bounds and not read: public repos holding other solvers' Eris solutions; leaderboard-probing papers.
+
+## Added after the supplied top solutions
+- G_shared_adam_top_solutions.md : digest of five Shared Adam solutions (own words).
+- H_anchorperm_top_solutions.md  : digest of five AnchorPerm solutions; pooled adaptation flagged DO NOT ADOPT without written approval.
+- I_gap_analysis_shared_adam_anchorperm.md : my solutions versus the ten; ranked, untested improvement hypotheses with compliance tags.
+- Problem statements: challenges/shared_adam_repair/CHALLENGE.md and challenges/anchorperm/CHALLENGE.md (verbatim).
