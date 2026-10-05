@@ -76,3 +76,9 @@ After the listwise permutation-likelihood MLP stacker (+0.035 over LightGBM on t
 - Kaggle submission.csv vs local: 99.92% of entries identical (1 of 597 rows differs): last-digit CPU differences, valid format.
 - upload/ now holds v7 (solution.py + Kaggle-run submission.csv). upload_v5_checked/ keeps the earlier version that the platform's pre-submission check scored 0.5514 public (checks passed).
 - Dataset was uploaded to a private Kaggle dataset (sharanya1805/second-half-data) at the owner's request; platform data terms not checked.
+
+## Round: next-play features + reference-style blend (2026-10-05)
+- Structure found: rank-1 continuation artist is the very next play after the prefix in 31% of rows, within 3 plays in 58%; rank-1 = first new artist of the second half in 60%.
+- Next-play transition features (artist/release/recording, last 1-5 plays, leave-row-out): discriminative (true pairs 29% nonzero vs 16% wrong for last-5 artist transition) but weak alone (0.15 Hungarian) and NO gain in the stack: MLP 0.5221 -> 0.5219 (marginal decode 0.5208 -> 0.5241, noise).
+- Reference-solution blend (MLP majority + linear listwise + hist-GBDT, probability-space, weight grid with MLP >= others): linear 0.507, GBDT 0.491; best blend = MLP alone (0.5241). Rejected.
+- Plateau: every lever since v5 moves CV by <= 0.01. Expected public for v7 ~0.555-0.56 (v5: CV 0.515 -> public 0.5514). AI baseline 0.6181 NOT reached.
