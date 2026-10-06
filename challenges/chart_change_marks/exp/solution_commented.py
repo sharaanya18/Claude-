@@ -1,3 +1,21 @@
+"""Hospital data-quality charts: consensus change marks + calibrated weak/split/firm odds.
+
+Usage: python3 solution.py <public_dir> <submission_out>
+
+Pipeline (all learning happens in this script, from the raw PNGs + train.csv, every run):
+  1. Read each binary scatter PNG and turn it into per-column ink profiles (a 1-D "image" along time).
+  2. Train a 1-D convolutional U-Net with a BiGRU bottleneck (from scratch, no pretrained weights) that
+     outputs, for every pixel column, (a) a heat-map of "a panel mark is here" and (b) the weak/split/firm
+     bracket logits. Chart metadata (n_points, aggunit, aggfn) conditions the network.
+  3. 5-fold cross-validation over the supplied folds.csv (each fold = whole dataset x fieldtype cells, i.e. the
+     same cross-cell transfer as the hidden test). Out-of-fold heat-maps are used to choose ONE decision threshold
+     and the bracket-calibration constants for the exact challenge metric; the five fold models are averaged
+     (per chart, one chart at a time) to predict the test charts.
+
+Requirements map (CPU only, 10 cores, 90 min; no external data; train.csv only; no pseudo-labels;
+no pooling across test charts; test rows are only ever passed through the trained networks one chart at a time):
+  - training: _train_fold() ; thresholds/calibration: fit on OOF only ; fixed epochs/seeds/threads, no clock logic.
+"""
 import os, sys, json, random, time
 from pathlib import Path
 
@@ -15,20 +33,20 @@ from PIL import Image
 PUBLIC_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("./dataset/public")
 SUBMISSION_OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("./working/submission.csv")
 
-
+# ----------------------------- fixed work plan -----------------------------
 SEED = 1234
-NUM_THREADS = 4
+NUM_THREADS = 4           # fixed; set to the real core count of the platform before submitting
 N_FOLDS = 5
 EPOCHS = 20
-N_MEMBERS = 2
+N_MEMBERS = 2             # independent seeds per fold; OOF = mean of members, test = mean of all fold x member models
 BATCH = 16
 LR = 2e-3
 WD = 1e-2
-WMAX = 928
-H0, H1, BIN = 18, 282, 4
+WMAX = 928                # widest chart is 920 px
+H0, H1, BIN = 18, 282, 4  # plot rows 18..281 -> 66 bins of 4 px
 NB = (H1 - H0) // BIN
-SIGMA = 2.5
-WIDTH_LEFT = 38
+SIGMA = 2.5               # gaussian width (px) of the heat-map target
+WIDTH_LEFT = 38           # plot area starts at column 38 and ends at W-39 (rendering is identical for all charts)
 AGGFNS = ['subcat_perc', 'subcat_n', 'n', 'missing_perc', 'missing_n', 'distinct', 'min', 'max', 'midnight_n',
           'midnight_perc', 'nonconformant_n', 'nonconformant_perc', 'meanlength', 'minlength', 'maxlength', 'mean',
           'median', 'nonzero_perc', 'sum']
@@ -46,11 +64,13 @@ def seed_everything(seed=SEED):
     torch.use_deterministic_algorithms(True, warn_only=True)
 
 
+# ----------------------------- features -----------------------------
 def load_chart(path):
-    a = np.array(Image.open(path).convert("L")) < 128
+    """Binary PNG -> (NB+2, W) float32 per-column features: ink fraction per 4-px row bin, log ink count, plot mask."""
+    a = np.array(Image.open(path).convert("L")) < 128           # True = ink
     W = a.shape[1]
-    ink = a[H0:H1].reshape(NB, BIN, W).mean(1)
-    cnt = np.log1p(a[H0:H1].sum(0))[None] / 4.0
+    ink = a[H0:H1].reshape(NB, BIN, W).mean(1)                   # (NB, W) fraction of ink in each row bin
+    cnt = np.log1p(a[H0:H1].sum(0))[None] / 4.0                  # (1, W)
     mask = np.zeros((1, W)); mask[0, WIDTH_LEFT:W - WIDTH_LEFT] = 1.0
     return np.concatenate([ink, cnt, mask], 0).astype(np.float32), W
 
@@ -59,7 +79,7 @@ def build_meta(df, widths):
     out = np.zeros((len(df), 2 + len(AGGUNITS) + len(AGGFNS)), dtype=np.float32)
     for i, (r, w) in enumerate(zip(df.itertuples(), widths)):
         out[i, 0] = np.log(r.n_points) / 8.0
-        out[i, 1] = np.log(r.n_points / (w - 2 * WIDTH_LEFT)) / 4.0
+        out[i, 1] = np.log(r.n_points / (w - 2 * WIDTH_LEFT)) / 4.0   # timepoints per pixel
         out[i, 2 + AGGUNITS.index(r.aggunit)] = 1.0
         out[i, 2 + len(AGGUNITS) + AGGFNS.index(r.aggfn)] = 1.0
     return out
@@ -81,6 +101,7 @@ def parse_marks(s):
     return [(float(m["x"]), int(np.argmax(m["p"]))) for m in ms]
 
 
+# ----------------------------- model -----------------------------
 class Res(nn.Module):
     def __init__(self, c, k=5, d=1):
         super().__init__()
@@ -95,6 +116,8 @@ class Res(nn.Module):
 
 
 class Net(nn.Module):
+    """1-D U-Net over the time (pixel-column) axis. The stem halves the resolution (stride 2); the heads are
+    upsampled back to one output per pixel column. A BiGRU at 1/16 resolution gives a chart-wide context."""
 
     def __init__(self, cin, nmeta, ch=(48, 64, 96, 128), hid=96):
         super().__init__()
@@ -123,9 +146,10 @@ class Net(nn.Module):
         y = self.f2(self.u2(x3) + x2)
         y = self.f1(self.u1(y) + x1)
         y = self.f0(self.u0(y) + x0)
-        return self.head(self.up(y))
+        return self.head(self.up(y))      # (B, 4, W): heat logit, 3 bracket logits
 
 
+# ----------------------------- batching / targets -----------------------------
 def make_targets(marks_list, widths, flips):
     B = len(marks_list)
     heat = np.zeros((B, WMAX), np.float32)
@@ -157,6 +181,8 @@ def augment_batch(X, widths, flips, vflips):
 
 
 def stretch_sample(x, w, ms, f, rng):
+    """Horizontally rescale the plot interior by factor f (changes the point density per pixel), keep the chart
+    width fixed by cropping (f > 1) or padding with blank columns (f < 1); mark positions move with the content."""
     L = WIDTH_LEFT
     inner = x[:, L:w - L]
     n = inner.shape[1]
@@ -183,12 +209,12 @@ def stretch_sample(x, w, ms, f, rng):
 
 def loss_fn(out, heat, brk, bw, valid):
     hl = out[:, 0]
-
+    # focal-ish BCE on the heat-map, only over the plot area
     p = torch.sigmoid(hl)
     bce = F.binary_cross_entropy_with_logits(hl, heat, reduction="none")
     wt = 1.0 + 4.0 * heat
     lh = (bce * wt * valid).sum() / valid.sum()
-
+    # bracket: cross-entropy + RPS around marks
     lp = F.log_softmax(out[:, 1:4], 1)
     ce = -(brk * lp).sum(1)
     pr = lp.exp()
@@ -238,6 +264,7 @@ def _train_fold(X, Wd, M, marks, tr_idx, epochs=EPOCHS, seed=SEED, vflip_aug=Tru
 
 @torch.no_grad()
 def predict_net(net, X, Wd, M, idx, tta=True):
+    """Return per-chart (heat prob (W,), bracket probs (3,W)) arrays; each chart is processed independently."""
     net.eval()
     heats, brks = [], []
     for s in range(0, len(idx), 32):
@@ -258,7 +285,9 @@ def predict_net(net, X, Wd, M, idx, tta=True):
     return heats, brks
 
 
+# ----------------------------- decoding -----------------------------
 def decode_chart(h, b, thr, win=5, nms=6):
+    """Peak-pick the heat-map. Score of a peak = mass of heat within +-win px (capped), sub-pixel centroid."""
     W = len(h)
     cand = []
     hs = h.copy()
@@ -296,10 +325,12 @@ def run_cv(df, X, Wd, M, marks, folds, epochs=EPOCHS, **kw):
     return oof_h, oof_b
 
 
+# ----------------------------- metric (exact re-implementation of the grader, used for OOF threshold choice) -----------------------------
 TOL = 5.0
 
 
 def chart_score(pred, truth):
+    """Greedy closest-pair matching within 5 px; credit = 1 - RPS; chart = 2*sum(credit)/(n_pred + n_true)."""
     n_p, n_t = len(pred), len(truth)
     if n_p == 0 and n_t == 0:
         return 1.0
@@ -315,10 +346,11 @@ def chart_score(pred, truth):
     return 2.0 * credit / (n_p + n_t)
 
 
-MIN_CELL = 30
+MIN_CELL = 30   # cells smaller than this are too noisy to steer the decision threshold
 
 
 def cv_skill(cells, truth, preds):
+    """Mean over (dataset, fieldtype) cells of skill above the empty submission, as in the challenge score."""
     ch = np.array([chart_score(p, t) for p, t in zip(preds, truth)])
     emp = np.array([chart_score([], t) for t in truth])
     out = []
@@ -330,7 +362,9 @@ def cv_skill(cells, truth, preds):
     return float(np.mean(out))
 
 
+# ----------------------------- bracket calibration -----------------------------
 def calibrate_p(p, temp, shrink, prior):
+    """Temperature on the log-probabilities, then shrink toward the train bracket mix."""
     q = np.asarray(p, dtype=np.float64) ** (1.0 / temp)
     q = q / q.sum()
     q = (1 - shrink) * q + shrink * prior
@@ -372,7 +406,7 @@ def main():
             prior[b] += 1
     prior /= prior.sum()
 
-
+    # 1) cross-cell CV: every fold model never sees the held-out dataset x fieldtype cells; test = mean of all fold x member models
     oof_h = [None] * len(tr); oof_b = [None] * len(tr)
     test_h = [None] * len(te); test_b = [None] * len(te)
     n_models = N_FOLDS * N_MEMBERS
@@ -385,19 +419,19 @@ def main():
             for k, i in enumerate(te_idx):
                 oof_h[i] = hh[k] / N_MEMBERS if oof_h[i] is None else oof_h[i] + hh[k] / N_MEMBERS
                 oof_b[i] = bb[k] / N_MEMBERS if oof_b[i] is None else oof_b[i] + bb[k] / N_MEMBERS
-            th, tb = predict_net(net, Xt, Wt, Mt, np.arange(len(te)))
+            th, tb = predict_net(net, Xt, Wt, Mt, np.arange(len(te)))   # each test chart is scored on its own
             for i in range(len(te)):
                 if test_h[i] is None:
                     test_h[i] = th[i] / n_models; test_b[i] = tb[i] / n_models
                 else:
                     test_h[i] = test_h[i] + th[i] / n_models; test_b[i] = test_b[i] + tb[i] / n_models
 
-
+    # 2) decision threshold and bracket calibration, chosen on out-of-fold predictions only (two numbers + one temperature)
     grid = [round(t, 2) for t in np.arange(0.30, 0.86, 0.05)]
     skills = []
     for thr in grid:
         skills.append(cv_skill(cells, truth, decode_all(oof_h, oof_b, thr)))
-    sm = np.convolve(np.pad(skills, 1, mode="edge"), np.ones(3) / 3, mode="valid")
+    sm = np.convolve(np.pad(skills, 1, mode="edge"), np.ones(3) / 3, mode="valid")   # prefer a plateau over a spike
     thr = grid[int(np.argmax(sm))]
     log("threshold grid " + " ".join(f"{g}:{s:.3f}" for g, s in zip(grid, skills)) + f" -> {thr}")
     base = decode_all(oof_h, oof_b, thr)
@@ -410,7 +444,7 @@ def main():
     _, temp, shrink = best
     log(f"OOF skill (mean over cells >= {MIN_CELL} charts) at thr {thr}: {best[0]:.4f}  bracket temp {temp} shrink {shrink}")
 
-
+    # 3) test predictions
     pred = [apply_calib(m, temp, shrink, prior) for m in decode_all(test_h, test_b, thr)]
     sub = sample.copy()
     sub["marks"] = [json.dumps(p) for p in pred]
