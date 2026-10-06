@@ -1,0 +1,137 @@
+[{"stream_name":"stdout","time":4.750014853,"data":"data dir: /kaggle/input/datasets/sharanya1805/chart-change-marks-data\n"}
+,{"stream_name":"stdout","time":42.990765868,"data":"[     32s] features built: train (3675, 68, 928) test (1367, 68, 928)\n"}
+,{"stream_name":"stdout","time":43.035424532,"data":"[     32s] fold 0: train 1861 held-out 1814\n"}
+,{"stream_name":"stdout","time":62.203896694,"data":"[     52s]   ep 1/24 loss 0.9410\n"}
+,{"stream_name":"stdout","time":81.239189845,"data":"[     71s]   ep 2/24 loss 0.8374\n"}
+,{"stream_name":"stdout","time":100.025316083,"data":"[     89s]   ep 3/24 loss 0.7689\n"}
+,{"stream_name":"stdout","time":118.637049368,"data":"[    108s]   ep 4/24 loss 0.7206\n"}
+,{"stream_name":"stdout","time":137.291576975,"data":"[    127s]   ep 5/24 loss 0.6874\n"}
+,{"stream_name":"stdout","time":155.857547816,"data":"[    145s]   ep 6/24 loss 0.6610\n"}
+,{"stream_name":"stdout","time":174.443273646,"data":"[    164s]   ep 7/24 loss 0.6433\n"}
+,{"stream_name":"stdout","time":193.030712386,"data":"[    182s]   ep 8/24 loss 0.6222\n"}
+,{"stream_name":"stdout","time":211.648457134,"data":"[    201s]   ep 9/24 loss 0.5927\n"}
+,{"stream_name":"stdout","time":230.253145381,"data":"[    220s]   ep 10/24 loss 0.5752\n"}
+,{"stream_name":"stdout","time":248.946803645,"data":"[    238s]   ep 11/24 loss 0.5629\n"}
+,{"stream_name":"stdout","time":267.556160226,"data":"[    257s]   ep 12/24 loss 0.5528\n"}
+,{"stream_name":"stdout","time":286.104941382,"data":"[    276s]   ep 13/24 loss 0.5355\n"}
+,{"stream_name":"stdout","time":304.571124744,"data":"[    294s]   ep 14/24 loss 0.5235\n"}
+,{"stream_name":"stdout","time":323.795917674,"data":"[    313s]   ep 15/24 loss 0.5057\n"}
+,{"stream_name":"stdout","time":342.834561838,"data":"[    332s]   ep 16/24 loss 0.4970\n"}
+,{"stream_name":"stdout","time":362.190752301,"data":"[    352s]   ep 17/24 loss 0.4742\n"}
+,{"stream_name":"stdout","time":381.120552383,"data":"[    371s]   ep 18/24 loss 0.4622\n"}
+,{"stream_name":"stdout","time":400.287765058,"data":"[    390s]   ep 19/24 loss 0.4484\n"}
+,{"stream_name":"stdout","time":419.136369636,"data":"[    409s]   ep 20/24 loss 0.4327\n"}
+,{"stream_name":"stdout","time":438.011696093,"data":"[    427s]   ep 21/24 loss 0.4161\n"}
+,{"stream_name":"stdout","time":456.8642829,"data":"[    446s]   ep 22/24 loss 0.4114\n"}
+,{"stream_name":"stdout","time":475.579948508,"data":"[    465s]   ep 23/24 loss 0.3980\n"}
+,{"stream_name":"stdout","time":494.185657105,"data":"[    484s]   ep 24/24 loss 0.3918\n"}
+,{"stream_name":"stdout","time":508.573789409,"data":"[    498s] fold 1: train 3209 held-out 466\n"}
+,{"stream_name":"stdout","time":540.738799755,"data":"[    530s]   ep 1/24 loss 0.9118\n"}
+,{"stream_name":"stdout","time":572.813568609,"data":"[    562s]   ep 2/24 loss 0.7955\n"}
+,{"stream_name":"stdout","time":605.057880875,"data":"[    594s]   ep 3/24 loss 0.7324\n"}
+,{"stream_name":"stdout","time":638.026299082,"data":"[    627s]   ep 4/24 loss 0.6907\n"}
+,{"stream_name":"stdout","time":670.474121349,"data":"[    660s]   ep 5/24 loss 0.6422\n"}
+,{"stream_name":"stdout","time":703.067481233,"data":"[    692s]   ep 6/24 loss 0.6174\n"}
+,{"stream_name":"stdout","time":735.346764031,"data":"[    725s]   ep 7/24 loss 0.6007\n"}
+,{"stream_name":"stdout","time":767.341337352,"data":"[    757s]   ep 8/24 loss 0.5916\n"}
+,{"stream_name":"stdout","time":798.878607681,"data":"[    788s]   ep 9/24 loss 0.5866\n"}
+,{"stream_name":"stdout","time":830.867089229,"data":"[    820s]   ep 10/24 loss 0.5675\n"}
+,{"stream_name":"stdout","time":863.038967793,"data":"[    852s]   ep 11/24 loss 0.5588\n"}
+,{"stream_name":"stdout","time":894.860812735,"data":"[    884s]   ep 12/24 loss 0.5416\n"}
+,{"stream_name":"stdout","time":926.935627723,"data":"[    916s]   ep 13/24 loss 0.5348\n"}
+,{"stream_name":"stdout","time":958.593672889,"data":"[    948s]   ep 14/24 loss 0.5215\n"}
+,{"stream_name":"stdout","time":990.798113254,"data":"[    980s]   ep 15/24 loss 0.5051\n"}
+,{"stream_name":"stdout","time":1022.801372881,"data":"[   1012s]   ep 16/24 loss 0.4952\n"}
+,{"stream_name":"stdout","time":1054.45437157,"data":"[   1044s]   ep 17/24 loss 0.4814\n"}
+,{"stream_name":"stdout","time":1086.395057231,"data":"[   1076s]   ep 18/24 loss 0.4698\n"}
+,{"stream_name":"stdout","time":1118.018737233,"data":"[   1107s]   ep 19/24 loss 0.4530\n"}
+,{"stream_name":"stdout","time":1149.868289661,"data":"[   1139s]   ep 20/24 loss 0.4416\n"}
+,{"stream_name":"stdout","time":1181.670190342,"data":"[   1171s]   ep 21/24 loss 0.4246\n"}
+,{"stream_name":"stdout","time":1213.809810182,"data":"[   1203s]   ep 22/24 loss 0.4157\n"}
+,{"stream_name":"stdout","time":1245.716864104,"data":"[   1235s]   ep 23/24 loss 0.4055\n"}
+,{"stream_name":"stdout","time":1277.682216443,"data":"[   1267s]   ep 24/24 loss 0.3959\n"}
+,{"stream_name":"stdout","time":1285.979794749,"data":"[   1275s] fold 2: train 3213 held-out 462\n"}
+,{"stream_name":"stdout","time":1317.899353645,"data":"[   1307s]   ep 1/24 loss 0.8888\n"}
+,{"stream_name":"stdout","time":1350.362972248,"data":"[   1340s]   ep 2/24 loss 0.7641\n"}
+,{"stream_name":"stdout","time":1382.343337105,"data":"[   1372s]   ep 3/24 loss 0.7027\n"}
+,{"stream_name":"stdout","time":1414.264848761,"data":"[   1404s]   ep 4/24 loss 0.6702\n"}
+,{"stream_name":"stdout","time":1445.994998474,"data":"[   1435s]   ep 5/24 loss 0.6400\n"}
+,{"stream_name":"stdout","time":1477.454201152,"data":"[   1467s]   ep 6/24 loss 0.6164\n"}
+,{"stream_name":"stdout","time":1509.233910085,"data":"[   1499s]   ep 7/24 loss 0.6008\n"}
+,{"stream_name":"stdout","time":1541.218453882,"data":"[   1531s]   ep 8/24 loss 0.5849\n"}
+,{"stream_name":"stdout","time":1573.152537764,"data":"[   1563s]   ep 9/24 loss 0.5717\n"}
+,{"stream_name":"stdout","time":1604.96425492,"data":"[   1594s]   ep 10/24 loss 0.5627\n"}
+,{"stream_name":"stdout","time":1637.395586593,"data":"[   1627s]   ep 11/24 loss 0.5505\n"}
+,{"stream_name":"stdout","time":1669.786796015,"data":"[   1659s]   ep 12/24 loss 0.5364\n"}
+,{"stream_name":"stdout","time":1702.680541781,"data":"[   1692s]   ep 13/24 loss 0.5218\n"}
+,{"stream_name":"stdout","time":1734.903279251,"data":"[   1724s]   ep 14/24 loss 0.5129\n"}
+,{"stream_name":"stdout","time":1767.04660555,"data":"[   1756s]   ep 15/24 loss 0.5107\n"}
+,{"stream_name":"stdout","time":1799.210739,"data":"[   1789s]   ep 16/24 loss 0.4868\n"}
+,{"stream_name":"stdout","time":1831.04585371,"data":"[   1820s]   ep 17/24 loss 0.4686\n"}
+,{"stream_name":"stdout","time":1863.065608721,"data":"[   1852s]   ep 18/24 loss 0.4568\n"}
+,{"stream_name":"stdout","time":1895.202107021,"data":"[   1885s]   ep 19/24 loss 0.4434\n"}
+,{"stream_name":"stdout","time":1926.909800438,"data":"[   1916s]   ep 20/24 loss 0.4248\n"}
+,{"stream_name":"stdout","time":1958.544348507,"data":"[   1948s]   ep 21/24 loss 0.4050\n"}
+,{"stream_name":"stdout","time":1990.416360131,"data":"[   1980s]   ep 22/24 loss 0.3915\n"}
+,{"stream_name":"stdout","time":2022.223225526,"data":"[   2012s]   ep 23/24 loss 0.3826\n"}
+,{"stream_name":"stdout","time":2054.14027733,"data":"[   2044s]   ep 24/24 loss 0.3768\n"}
+,{"stream_name":"stdout","time":2062.26092436,"data":"[   2052s] fold 3: train 3208 held-out 467\n"}
+,{"stream_name":"stdout","time":2094.108252433,"data":"[   2084s]   ep 1/24 loss 0.9072\n"}
+,{"stream_name":"stdout","time":2126.392933312,"data":"[   2116s]   ep 2/24 loss 0.7644\n"}
+,{"stream_name":"stdout","time":2158.742199201,"data":"[   2148s]   ep 3/24 loss 0.7031\n"}
+,{"stream_name":"stdout","time":2191.183495032,"data":"[   2181s]   ep 4/24 loss 0.6704\n"}
+,{"stream_name":"stdout","time":2223.27665669,"data":"[   2213s]   ep 5/24 loss 0.6432\n"}
+,{"stream_name":"stdout","time":2255.202853967,"data":"[   2245s]   ep 6/24 loss 0.6195\n"}
+,{"stream_name":"stdout","time":2286.957417923,"data":"[   2276s]   ep 7/24 loss 0.6049\n"}
+,{"stream_name":"stdout","time":2318.605314349,"data":"[   2308s]   ep 8/24 loss 0.5908\n"}
+,{"stream_name":"stdout","time":2350.389005159,"data":"[   2340s]   ep 9/24 loss 0.5826\n"}
+,{"stream_name":"stdout","time":2382.159253007,"data":"[   2372s]   ep 10/24 loss 0.5691\n"}
+,{"stream_name":"stdout","time":2413.799113314,"data":"[   2403s]   ep 11/24 loss 0.5563\n"}
+,{"stream_name":"stdout","time":2445.42405634,"data":"[   2435s]   ep 12/24 loss 0.5482\n"}
+,{"stream_name":"stdout","time":2476.966861695,"data":"[   2466s]   ep 13/24 loss 0.5346\n"}
+,{"stream_name":"stdout","time":2508.949961566,"data":"[   2498s]   ep 14/24 loss 0.5265\n"}
+,{"stream_name":"stdout","time":2540.738237385,"data":"[   2530s]   ep 15/24 loss 0.5096\n"}
+,{"stream_name":"stdout","time":2572.537260034,"data":"[   2562s]   ep 16/24 loss 0.5025\n"}
+,{"stream_name":"stdout","time":2604.489802521,"data":"[   2594s]   ep 17/24 loss 0.4874\n"}
+,{"stream_name":"stdout","time":2636.101787448,"data":"[   2626s]   ep 18/24 loss 0.4684\n"}
+,{"stream_name":"stdout","time":2667.558888694,"data":"[   2657s]   ep 19/24 loss 0.4513\n"}
+,{"stream_name":"stdout","time":2699.01977797,"data":"[   2688s]   ep 20/24 loss 0.4377\n"}
+,{"stream_name":"stdout","time":2730.701572536,"data":"[   2720s]   ep 21/24 loss 0.4216\n"}
+,{"stream_name":"stdout","time":2762.347405812,"data":"[   2752s]   ep 22/24 loss 0.4091\n"}
+,{"stream_name":"stdout","time":2794.102876048,"data":"[   2784s]   ep 23/24 loss 0.3961\n"}
+,{"stream_name":"stdout","time":2825.845090904,"data":"[   2815s]   ep 24/24 loss 0.3946\n"}
+,{"stream_name":"stdout","time":2834.216756857,"data":"[   2824s] fold 4: train 3209 held-out 466\n"}
+,{"stream_name":"stdout","time":2866.26814435,"data":"[   2856s]   ep 1/24 loss 0.8985\n"}
+,{"stream_name":"stdout","time":2898.172673377,"data":"[   2888s]   ep 2/24 loss 0.7739\n"}
+,{"stream_name":"stdout","time":2929.955912873,"data":"[   2919s]   ep 3/24 loss 0.7218\n"}
+,{"stream_name":"stdout","time":2961.730064639,"data":"[   2951s]   ep 4/24 loss 0.6758\n"}
+,{"stream_name":"stdout","time":2993.714043285,"data":"[   2983s]   ep 5/24 loss 0.6472\n"}
+,{"stream_name":"stdout","time":3025.61826948,"data":"[   3015s]   ep 6/24 loss 0.6253\n"}
+,{"stream_name":"stdout","time":3057.151686297,"data":"[   3047s]   ep 7/24 loss 0.6026\n"}
+,{"stream_name":"stdout","time":3088.845470203,"data":"[   3078s]   ep 8/24 loss 0.5926\n"}
+,{"stream_name":"stdout","time":3120.477483817,"data":"[   3110s]   ep 9/24 loss 0.5773\n"}
+,{"stream_name":"stdout","time":3151.905152981,"data":"[   3141s]   ep 10/24 loss 0.5627\n"}
+,{"stream_name":"stdout","time":3183.652440573,"data":"[   3173s]   ep 11/24 loss 0.5558\n"}
+,{"stream_name":"stdout","time":3215.402742966,"data":"[   3205s]   ep 12/24 loss 0.5427\n"}
+,{"stream_name":"stdout","time":3247.089121609,"data":"[   3237s]   ep 13/24 loss 0.5357\n"}
+,{"stream_name":"stdout","time":3278.414705933,"data":"[   3268s]   ep 14/24 loss 0.5208\n"}
+,{"stream_name":"stdout","time":3309.881275606,"data":"[   3299s]   ep 15/24 loss 0.5051\n"}
+,{"stream_name":"stdout","time":3341.440791999,"data":"[   3331s]   ep 16/24 loss 0.4921\n"}
+,{"stream_name":"stdout","time":3373.227089381,"data":"[   3363s]   ep 17/24 loss 0.4756\n"}
+,{"stream_name":"stdout","time":3404.828117684,"data":"[   3394s]   ep 18/24 loss 0.4651\n"}
+,{"stream_name":"stdout","time":3436.529553047,"data":"[   3426s]   ep 19/24 loss 0.4487\n"}
+,{"stream_name":"stdout","time":3468.31989098,"data":"[   3458s]   ep 20/24 loss 0.4295\n"}
+,{"stream_name":"stdout","time":3500.442745771,"data":"[   3490s]   ep 21/24 loss 0.4134\n"}
+,{"stream_name":"stdout","time":3533.43039832,"data":"[   3523s]   ep 22/24 loss 0.4014\n"}
+,{"stream_name":"stdout","time":3565.888230961,"data":"[   3555s]   ep 23/24 loss 0.3909\n"}
+,{"stream_name":"stdout","time":3597.613262874,"data":"[   3587s]   ep 24/24 loss 0.3845\n"}
+,{"stream_name":"stdout","time":3612.532069993,"data":"[   3602s] threshold grid 0.3:0.326 0.35:0.381 0.4:0.416 0.45:0.440 0.5:0.456 0.55:0.465 0.6:0.468 0.65:0.443 0.7:0.402 0.75:0.330 0.8:0.235 0.85:0.104 -\u003e 0.55\n"}
+,{"stream_name":"stdout","time":3614.705111677,"data":"[   3604s] OOF skill (mean over cells \u003e= 30 charts) at thr 0.55: 0.4669  bracket temp 1.5 shrink 0.0\n"}
+,{"stream_name":"stdout","time":3614.864073716,"data":"[   3604s] wrote /kaggle/working/submission.csv rows=1367 marks=1517 empty charts=597\n"}
+,{"stream_name":"stderr","time":3618.205031807,"data":"/usr/local/lib/python3.13/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":3618.205080858,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":3618.515812577,"data":"/usr/local/lib/python3.13/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":3618.515865847,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":3619.335695205,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":3620.413140941,"data":"[NbConvertApp] Writing 319828 bytes to __results__.html\n"}
+]
