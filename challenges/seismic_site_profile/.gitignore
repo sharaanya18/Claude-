@@ -1,0 +1,8 @@
+# generated caches and run artefacts: regenerate with cache_feats.py / cache_crops.py
+# (solution.py never reads a cache - it recomputes everything from the raw waveforms)
+feat_cache.npz
+crop_cache.npz
+oof_*.npz
+oof_*.npy
+icc.npz
+logs/

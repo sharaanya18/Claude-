@@ -1,0 +1,1430 @@
+SEISMIC SITE PROFILE — HIGH-SCORE CLAUDE CODE SOLVER
+
+You are an expert machine-learning competition engineer specializing in small-data signal processing, seismic waveform representation learning, robust validation, and classification under severe CPU constraints.
+
+Your task is to build a high-generalization solution for the provided Seismic Site Profile challenge.
+
+PRIMARY OBJECTIVE
+
+Current AI baseline on unseen data: approximately 0.28
+
+Target: 0.32+ on unseen/private data
+
+The goal is NOT to maximize a noisy local validation score.
+
+The goal is to identify a representation and modeling strategy that captures the station/site-dependent spectral signature encoded in the three-component waveform, while remaining robust to unseen earthquakes and completely unseen stations.
+
+The final solution must:
+
+- obey every challenge rule
+- use only the supplied data
+- avoid leakage
+- generalize to unseen stations
+- run on CPU
+- fit within the 10-core / 62 GB RAM / 90-minute constraint
+- produce a valid submission containing all 333 test records
+- be deterministic and reproducible
+
+Do not assume 0.32 is guaranteed. Treat it as the optimization target and select the approach based on evidence.
+
+---
+
+PHASE 1 — PLATFORM / GITHUB RECONNAISSANCE
+
+Objective
+
+First inspect the supplied GitHub/platform repository completely enough to understand how competition solutions are expected to work.
+
+The repository may contain solutions for other problems. There may be no existing Seismic Site Profile solver.
+
+Do NOT assume another challenge's approach transfers directly.
+
+Inspect:
+
+- repository structure
+- README/documentation
+- solver framework
+- dataset-loading utilities
+- feature-engineering utilities
+- validation utilities
+- training scripts
+- inference scripts
+- submission generators
+- experiment utilities
+- CPU/threading configuration
+- deterministic execution mechanisms
+- model wrappers
+- cross-validation utilities
+- useful signal-processing utilities
+- previously successful competition patterns
+- leakage-prevention mechanisms
+- logging/results infrastructure
+
+For other challenge solutions, extract only generalizable methodology, such as:
+
+- how experiments are organized
+- how validation is performed
+- how feature sets are compared
+- how ensembles are created
+- how determinism is enforced
+- how submission files are checked
+- how overfitting is detected
+
+Do not blindly copy challenge-specific features.
+
+Create:
+
+"platform_analysis.md"
+
+Document:
+
+1. platform architecture
+2. reusable components
+3. relevant competition patterns
+4. potentially useful utilities
+5. irrelevant components
+6. leakage risks
+7. reproducibility requirements
+8. CPU/runtime considerations
+9. recommended platform components for this challenge
+
+At the end, explicitly state:
+
+REUSE
+and
+DO NOT REUSE
+
+before proceeding.
+
+---
+
+PHASE 2 — DATASET FORENSIC AUDIT
+
+Now inspect the actual Seismic Site Profile dataset.
+
+Expected files:
+
+- "train.csv"
+- "test.csv"
+- "sample_submission.csv"
+- "waveforms.npz"
+- "folds.csv"
+
+Inspect them programmatically.
+
+Verify
+
+train.csv
+
+Expected:
+
+- "id"
+- "profile"
+
+Parse every profile into:
+
+"v1 | v2 | v3 | v4"
+
+Verify:
+
+- all four cells exist
+- all labels are in v1–v4
+- ordering is shallow → deep
+- no malformed profiles
+- class frequencies per depth
+- rare classes
+- profile combinations
+- correlations between depth cells
+- transition patterns across depth
+
+test.csv
+
+Verify:
+
+- number of records
+- IDs
+- duplicates
+- formatting
+- correspondence with waveform keys
+
+waveforms.npz
+
+Inspect:
+
+- total keys
+- shape
+- dtype
+- amplitude normalization
+- missing IDs
+- duplicate/impossible entries
+- per-component statistics
+- zero/near-zero traces
+- NaN/Inf
+- clipping
+- unusual records
+
+Expected waveform:
+
+"3 × 3000"
+
+corresponding to:
+
+- East
+- North
+- Vertical
+
+50 Hz × 60 seconds.
+
+folds.csv
+
+This is CRITICAL.
+
+Verify:
+
+- each training ID appears exactly once
+- station/site grouping
+- every station remains inside exactly one fold
+- fold counts
+- records per station
+- class distribution by fold
+- whether any station has unusual representation
+- whether each fold reasonably mimics the final evaluation setting
+
+Create:
+
+"dataset_audit.md"
+
+Include all important findings.
+
+---
+
+PHASE 3 — EXACT LABEL / PROFILE INTERPRETATION
+
+Do not treat the four output cells as arbitrary unrelated classes.
+
+Map the physical bands exactly:
+
+0–5 m
+
+- v1 < 210
+- v2 = 210–280
+- v3 = 280–430
+- v4 >= 430
+
+5–10 m
+
+- v1 < 280
+- v2 = 280–400
+- v3 = 400–620
+- v4 >= 620
+
+10–20 m
+
+- v1 < 370
+- v2 = 370–520
+- v3 = 520–790
+- v4 >= 790
+
+20–30 m
+
+- v1 < 430
+- v2 = 430–620
+- v3 = 620–900
+- v4 >= 900
+
+The physical label is based on the cell's thickness-weighted harmonic mean Vs.
+
+Understand and exploit the fact that velocity generally increases with depth, but do not hard-code an ordering that contradicts the training labels.
+
+Analyze:
+
+- adjacent-cell transitions
+- probability of downward velocity increase
+- impossible/rare transitions
+- common profile templates
+- conditional distributions such as:
+
+"P(cell_2 | cell_1)"
+
+"P(cell_3 | cell_2, cell_1)"
+
+"P(cell_4 | previous cells)"
+
+These dependencies may be useful for structured prediction.
+
+Do not use labels in a way that leaks between validation folds.
+
+---
+
+PHASE 4 — REPRODUCE THE EXACT EVALUATION METRIC
+
+Implement the challenge metric locally exactly.
+
+The metric is:
+
+1. macro-F1 independently for each depth cell
+2. average over four cells
+3. convert to skill relative to the blind policy
+
+Formula:
+
+"cell_score = mean(macro_F1_cell1, macro_F1_cell2, macro_F1_cell3, macro_F1_cell4)"
+
+"blind = mean(1 / K_cell)"
+
+where "K_cell" is the number of bands present in that cell.
+
+Then:
+
+"score = (cell_score - blind) / (1 - blind)"
+
+and clamp:
+
+"max(0.001, min(1.0, score))"
+
+Implement this as the single primary evaluation metric.
+
+Do NOT optimize ordinary accuracy.
+
+Do NOT optimize micro-F1 as the main target.
+
+Do NOT judge a model solely by loss.
+
+Because this is macro-F1:
+
+- rare classes matter heavily
+- class collapse is dangerous
+- always predicting the majority class is useless
+- probability quality alone is not sufficient
+- decision boundaries matter strongly
+
+Create:
+
+"metric.py"
+
+and independently test it on known/artificial examples.
+
+---
+
+PHASE 5 — ANALYZE THE SUPPLIED PRIVATE-LB #1 REFERENCE
+
+Only after understanding the dataset and metric, inspect the separate private-LB #1 reference solution/artifact supplied with the workspace.
+
+Treat it as a source of methodology and competition insight.
+
+Do NOT blindly copy it.
+
+Perform forensic analysis of:
+
+- preprocessing
+- signal representation
+- frequency-domain features
+- time-domain features
+- component transformations
+- horizontal/vertical relationships
+- model family
+- feature selection
+- cross-validation
+- class handling
+- multi-cell modeling
+- hyperparameters
+- ensemble logic
+- post-processing
+- runtime
+- possible weaknesses
+- possible sources of generalization
+
+Determine specifically:
+
+What makes the reference strong?
+
+Which features are genuinely site-sensitive?
+
+Which parts are likely exploiting training-specific patterns?
+
+Which ideas can be independently reproduced?
+
+Which ideas can be improved?
+
+Which ideas should be rejected?
+
+Create:
+
+"private_lb_reference_analysis.md"
+
+Then create:
+
+"reference_reproduction_plan.md"
+
+Do not copy code without understanding it.
+
+---
+
+PHASE 6 — ESTABLISH A TRUSTWORTHY BASELINE
+
+Before attempting sophisticated improvements, reproduce a strong baseline using the supplied folds.
+
+Use the station/site-held-out folds exactly.
+
+Correct validation:
+
+Fold 0:
+train = stations from folds 1–4
+validation = stations from fold 0
+
+Fold 1:
+train = stations from folds 0,2,3,4
+validation = stations from fold 1
+
+...
+
+Never randomly split individual records.
+
+Never allow records from the same station to appear in both training and validation.
+
+Evaluate:
+
+- every fold separately
+- mean score
+- standard deviation
+- per-depth macro-F1
+- per-class F1
+- confusion matrices
+- profile-level consistency
+
+First reproduce approximately the expected reference range:
+
+- spectral centroid + H/V ≈ 0.0678
+- 5NN log-spectral ≈ 0.1721
+- logistic/GB on stronger hand-built features ≈ 0.2165
+- scratch CNN ≈ 0.1993
+
+The exact values need not match perfectly, but the implementation should be directionally consistent.
+
+Then compare against the supplied/current AI baseline around 0.28 if that baseline is available.
+
+Create:
+
+"baseline_results.csv"
+
+with every experiment recorded.
+
+---
+
+PHASE 7 — BUILD A STRONG WAVEFORM REPRESENTATION
+
+This should be the primary optimization phase.
+
+The dataset is tiny.
+
+Do NOT immediately build a deep neural network.
+
+First extract physically meaningful signal representations.
+
+For every record, investigate:
+
+A. Raw time-domain statistics
+
+Per component:
+
+- RMS
+- standard deviation
+- variance
+- mean
+- peak absolute amplitude
+- percentile amplitudes
+- zero crossing rate
+- crest factor
+- kurtosis
+- skewness
+- energy
+- envelope statistics
+- duration/energy concentration
+- temporal entropy
+
+Remember the waveforms are amplitude-normalised, so absolute amplitude information is unavailable.
+
+Focus on shape, not magnitude.
+
+---
+
+PHASE 8 — FREQUENCY-DOMAIN FEATURES
+
+The challenge strongly suggests that frequency shape contains the useful site information.
+
+Construct robust spectral representations.
+
+For E, N, Z separately calculate:
+
+- FFT magnitude
+- power spectrum
+- log power spectrum
+- spectral centroid
+- spectral spread
+- spectral bandwidth
+- spectral rolloff
+- spectral entropy
+- dominant frequencies
+- peak frequencies
+- peak prominence
+- spectral slope
+- spectral curvature
+- energy ratios across frequency bands
+
+Investigate carefully chosen frequency bins rather than only global scalars.
+
+Use logarithmic frequency bins where appropriate.
+
+Test:
+
+- linear frequency bins
+- log-spaced frequency bins
+- octave bands
+- one-third-octave-like bands
+- smoothed spectra
+- low-frequency emphasis
+- mid-frequency emphasis
+
+Do not blindly increase dimensionality.
+
+Use validation to determine whether each representation actually generalizes.
+
+---
+
+PHASE 9 — H/V AND THREE-COMPONENT RELATIONSHIPS
+
+Explicitly exploit the three-component nature.
+
+Construct:
+
+"H = sqrt((E² + N²) / 2)"
+
+and investigate:
+
+"H/V"
+
+or robust frequency-domain variants.
+
+Test:
+
+- H/V amplitude ratio
+- log(H/V)
+- H/V dominant peak
+- H/V peak prominence
+- multiple H/V peaks
+- H/V spectral area
+- H/V frequency-band ratios
+- frequency-dependent H/V curves
+- E/N ratio
+- geometric horizontal combinations
+- horizontal anisotropy
+- E-versus-N spectral differences
+- rotationally invariant horizontal features
+
+The site response should be more stable under horizontal rotation than raw E/N representations.
+
+Therefore investigate rotation-invariant features such as:
+
+- horizontal geometric mean spectrum
+- horizontal RMS spectrum
+- eigenvalues/eigenvectors of the 2×2 horizontal spectral covariance
+- principal horizontal energy
+- horizontal anisotropy
+- rotationally averaged quantities
+
+Do not assume E and N orientation itself is informative.
+
+---
+
+PHASE 10 — MULTI-WINDOW AND MULTI-RESOLUTION ANALYSIS
+
+One earthquake record contains source/path information that can contaminate the site signature.
+
+Therefore investigate whether the station signature is more stable in some portions of the waveform than others.
+
+Create multiple windows, for example:
+
+- early portion
+- middle portion
+- later portion
+- equal-duration windows
+- overlapping windows
+
+For each window compute spectral representations.
+
+Compare:
+
+- mean spectrum
+- median spectrum
+- variability across windows
+- spectral peak stability
+- H/V peak stability
+- frequency-band stability
+
+The objective is NOT to identify the earthquake.
+
+The objective is to find the station/site-consistent component of the waveform.
+
+Measure whether features are stable enough across windows to be useful for unseen stations.
+
+---
+
+PHASE 11 — EARTHQUAKE / PATH ROBUSTNESS
+
+Because the evaluation station is unseen, raw waveform similarity is unreliable.
+
+Investigate transformations designed to suppress source/path variation:
+
+- spectral normalisation
+- band-energy ratios
+- within-record standardisation
+- log-spectrum differencing
+- H/V normalisation
+- relative spectral shape
+- component ratios
+- spectral slopes
+- spectral peak relationships
+
+Compare each against absolute spectral magnitude.
+
+Remember:
+
+amplitude is deliberately normalised, so never attempt to reconstruct unavailable absolute amplification.
+
+The model should rely on frequency-dependent shape and cross-component relationships.
+
+---
+
+PHASE 12 — BETTER FEATURE ENGINEERING THAN THE SIMPLE REFERENCE
+
+Start with the known reference representation and improve it systematically.
+
+Do not add 500 random statistics.
+
+Use controlled feature families.
+
+Possible groups:
+
+Group A
+
+Basic log-spectrum
+
+Group B
+
+H/V
+
+Group C
+
+Spectral peak structure
+
+Group D
+
+Band-energy ratios
+
+Group E
+
+Spectral slopes
+
+Group F
+
+Horizontal rotation-invariant features
+
+Group G
+
+Multi-window stability
+
+Group H
+
+Cross-component relationships
+
+Group I
+
+Temporal/spectral summary features
+
+Run controlled ablations:
+
+A
+A+B
+A+B+C
+A+B+C+D
+...
+
+Record:
+
+- fold scores
+- mean
+- standard deviation
+- per-cell score
+- runtime
+- feature count
+
+Reject feature families that repeatedly hurt held-out performance.
+
+---
+
+PHASE 13 — MODEL FAMILY SEARCH
+
+Because only 1,179 labeled records are available, prioritize models that work well in small tabular datasets.
+
+Test:
+
+1. Logistic Regression
+2. Linear discriminant style models where appropriate
+3. Random Forest
+4. Extra Trees
+5. Gradient Boosting
+6. HistGradientBoosting
+7. XGBoost/LightGBM only if already available and runtime-safe
+8. k-nearest-neighbour methods on carefully normalized representations
+9. SVM / kernel models if CPU runtime permits
+10. small shallow ensembles
+
+Do not assume a neural network will win.
+
+The supplied evidence already indicates that hand-crafted spectral features can outperform a from-scratch CNN.
+
+---
+
+PHASE 14 — PER-CELL MODELING
+
+Initially model each depth cell independently:
+
+features -> cell 1 classifier
+features -> cell 2 classifier
+features -> cell 3 classifier
+features -> cell 4 classifier
+
+Then investigate whether shared representation with cell-specific heads improves performance.
+
+Compare:
+
+- independent classifiers
+- shared feature selection + independent classifiers
+- multi-output models
+- chained/conditional models
+
+Do not impose artificial dependence that damages macro-F1.
+
+---
+
+PHASE 15 — HANDLE MACRO-F1 AND CLASS IMBALANCE PROPERLY
+
+Macro-F1 makes minority bands important.
+
+Inspect:
+
+- class counts for each cell
+- class imbalance ratios
+- per-fold class absence
+- rare-class instability
+
+Test carefully:
+
+- class weighting
+- balanced subsampling
+- controlled oversampling
+- threshold adjustment
+- per-class decision calibration
+- probability-to-label tuning
+
+But optimize thresholds only within training folds, never using validation labels.
+
+Do not tune thresholds separately on the final evaluation set.
+
+Beware that aggressive balancing can hurt common-class performance and overall macro-F1.
+
+Keep only changes that improve performance consistently across station-held-out folds.
+
+---
+
+PHASE 16 — EXPLOIT DEPTH ORDER WITHOUT LEAKAGE
+
+The four cells are physically related.
+
+Analyze:
+
+- how often deeper cells have higher bands
+- neighboring-cell transitions
+- profile frequency
+- conditional label structure
+
+Then compare:
+
+Independent prediction
+
+versus
+
+Structured prediction
+
+Possible approaches:
+
+- probability adjustment using training-only transition matrices
+- conditional prediction
+- constrained decoding
+- ranking/ordinal latent representations
+
+Any constraint must be validated carefully.
+
+Do NOT blindly force:
+
+"cell4 >= cell3 >= cell2 >= cell1"
+
+because the target is based on different thresholds and harmonic means, and the observed labels may contain legitimate exceptions.
+
+Only enforce relationships demonstrably supported by training data and consistently beneficial under station-held-out CV.
+
+---
+
+PHASE 17 — ORDINAL / LATENT VELOCITY MODELING
+
+Although each cell has four categorical bands, the labels have a natural ordered meaning:
+
+"v1 < v2 < v3 < v4"
+
+Investigate models that exploit the ordering.
+
+Compare:
+
+- ordinary multiclass classification
+- ordinal classification
+- cumulative binary classifiers
+- regression-to-latent-score followed by thresholding
+- ordinal logistic models
+- classification plus ordinal consistency
+- hybrid multiclass + ordinal features
+
+Do not assume ordinal modeling is automatically superior.
+
+The final choice must be based on whole-station CV.
+
+---
+
+PHASE 18 — REPRESENTATION REDUCTION AND ROBUSTNESS
+
+High-dimensional spectra can overfit badly with only 1,179 records.
+
+Test:
+
+- PCA
+- truncated spectral representation
+- low-rank representations
+- frequency-band aggregation
+- supervised feature selection
+- regularized models
+
+Use PCA only when it is fitted inside each training fold.
+
+Never fit feature transformations on the complete dataset before cross-validation.
+
+Compare:
+
+- full features
+- reduced features
+- selected features
+
+Prefer the simplest representation that gives consistently strong station-held-out results.
+
+---
+
+PHASE 19 — SELF-SUPERVISED / UNSUPERVISED USE OF TRAINING WAVEFORMS
+
+You may investigate unsupervised representations using the supplied waveform data.
+
+Potentially useful methods:
+
+- PCA
+- clustering
+- spectral prototypes
+- manifold representations
+- reconstruction-based features
+
+These are allowed only when derived from the supplied challenge data.
+
+Do NOT use external seismic corpora.
+
+Do NOT use pretrained encoders.
+
+Do NOT download or import any outside seismic model.
+
+If using unlabeled waveforms, carefully consider whether that representation could introduce a train/test distribution dependency that would not be available under the challenge rules.
+
+---
+
+PHASE 20 — DO NOT RELY ON RAW KNN ALONE
+
+The reference indicates that KNN in log-spectral space can be surprisingly competitive.
+
+Investigate it, but understand why.
+
+Test:
+
+- Euclidean distance
+- cosine distance
+- correlation distance
+- weighted KNN
+- prototype-based classification
+- local neighborhood class distributions
+
+Use training-fold-only data for validation.
+
+Do not use test-set clustering to construct answer groups.
+
+Do not copy labels based on ID or row ordering.
+
+A similarity-based model should capture site-relevant spectral similarity, not merely similar earthquake source/path signatures.
+
+---
+
+PHASE 21 — CONTROLLED ENSEMBLE
+
+Once strong individual models are identified, build a small ensemble.
+
+Potential complementary models:
+
+1. linear model on spectral/HV features
+2. tree-based model
+3. KNN in normalized spectral space
+4. ordinal/structured model
+5. possibly a very small from-scratch neural model if it provides genuinely complementary errors
+
+Do NOT ensemble ten nearly identical models.
+
+Measure:
+
+- pairwise prediction correlation
+- disagreement
+- per-cell complementarity
+- fold-by-fold improvement
+
+Use out-of-fold predictions to determine ensemble weights.
+
+Do not select ensemble weights using test labels or public leaderboard probing.
+
+Prefer an ensemble that improves all or most station-held-out folds rather than one that wins on one fold.
+
+---
+
+PHASE 22 — PUBLIC VS PRIVATE LEADERBOARD ROBUSTNESS
+
+The challenge explicitly warns that the public leaderboard is noisy and that the private leaderboard should be trusted more.
+
+Therefore:
+
+Do not overreact to small public-LB changes.
+
+When evaluating variants:
+
+1. prioritize 5-fold station-held-out CV
+2. examine consistency across folds
+3. prefer robust improvements over lucky gains
+4. avoid selecting a model because of a tiny public-LB increase
+5. do not repeatedly probe submissions to infer hidden labels
+
+A 0.01 local-CV improvement that occurs consistently across folds is more valuable than a random leaderboard fluctuation.
+
+---
+
+PHASE 23 — OVERFITTING / GENERALIZATION STRESS TEST
+
+Before selecting the final model, run a strict stress test.
+
+Check:
+
+- fold-to-fold variance
+- per-station performance
+- per-depth performance
+- rare-class performance
+- performance on atypical waveform shapes
+- sensitivity to feature subsets
+- sensitivity to random seed
+- sensitivity to model hyperparameters
+- sensitivity to window selection
+- sensitivity to frequency resolution
+
+Look for:
+
+- suspiciously large CV jumps
+- one-fold-only improvements
+- overly complex feature sets
+- unstable rare-class predictions
+- models depending on individual frequency bins
+- model dependence on raw record ordering
+- feature leakage
+- preprocessing leakage
+
+A model that scores 0.35 on one fold and 0.25 on others is NOT a reliable 0.32 solution.
+
+Prefer stable performance.
+
+---
+
+PHASE 24 — ADVERSARIAL VALIDATION
+
+Investigate whether train and test waveform distributions differ.
+
+Use only allowed waveform information.
+
+Compare:
+
+- spectral statistics
+- H/V distributions
+- frequency-band distributions
+- component relationships
+- temporal statistics
+- PCA embeddings
+- nearest-neighbour distances
+
+Train a simple train-vs-test discriminator.
+
+If train/test separability is high, identify which feature families are causing it.
+
+Do not use the discriminator to extract labels.
+
+Its purpose is to understand distribution shift and make the representation more robust.
+
+---
+
+PHASE 25 — FEATURE STABILITY ANALYSIS
+
+For each major feature family determine:
+
+- stability across earthquakes
+- stability across stations
+- relationship with labels
+- redundancy with other features
+- sensitivity to preprocessing choices
+
+Strong features should ideally represent stable site-response characteristics.
+
+Do not select features only because they correlate strongly with labels in the complete training set.
+
+A feature must survive station-held-out validation.
+
+---
+
+PHASE 26 — FINAL MODEL SELECTION
+
+Create a final experiment table like:
+
+Model| Features| Mean CV| Std| Cell1| Cell2| Cell3| Cell4| Runtime
+
+Rank models primarily by:
+
+1. station-held-out mean score
+2. stability across folds
+3. per-cell balance
+4. rare-class robustness
+5. simplicity
+6. runtime
+
+Do not choose the most complicated model automatically.
+
+The final architecture should be the simplest system that gives convincing evidence of generalization.
+
+---
+
+PHASE 27 — TARGET 0.32 STRATEGY
+
+The target is:
+
+>= 0.32 on unseen/private data
+
+Do not simply tune until CV says 0.32.
+
+Instead, look for an approach that has multiple independent reasons to generalize:
+
+- strong frequency representation
+- H/V/site-response information
+- horizontal rotation robustness
+- multi-window stability
+- macro-F1-aware modeling
+- class imbalance handling
+- depth structure
+- complementary ensemble models
+- station-held-out validation
+- low variance across folds
+
+If CV reaches approximately 0.32–0.34 consistently, perform additional robustness tests before finalizing.
+
+If CV is below 0.32, do not fake confidence. Continue investigating representation quality, feature design, model selection, and validation weaknesses.
+
+---
+
+PHASE 28 — FINAL TRAINING
+
+After model selection:
+
+1. freeze the feature pipeline
+2. freeze hyperparameters
+3. fit preprocessing on all training data
+4. train the final model(s)
+5. generate predictions for every test ID
+6. convert predictions to exactly four labels
+7. apply only previously validated post-processing
+
+Never modify the method based on the unseen test predictions.
+
+Never manually inspect test rows to assign labels.
+
+---
+
+PHASE 29 — SUBMISSION VALIDATION
+
+Generate:
+
+"submission.csv"
+
+It MUST contain exactly:
+
+id,profile
+
+in that order.
+
+Check:
+
+- exactly 333 rows
+- every test ID included
+- no missing IDs
+- no extra IDs
+- no duplicate IDs
+- exactly four bands in every profile
+- bands only from "v1,v2,v3,v4"
+- correct order
+- exact lowercase spelling
+- "|" separator
+- no whitespace
+- no NaN
+- no malformed profile
+- ID set exactly matches "test.csv"
+
+Run an automated final validator.
+
+Create:
+
+"submission_validation_report.txt"
+
+with:
+
+- row count
+- duplicate count
+- missing-ID count
+- extra-ID count
+- invalid-profile count
+- class distributions per depth
+- final file path
+- runtime
+
+---
+
+PHASE 30 — DETERMINISM AND RUNTIME
+
+The final solution must run:
+
+- CPU only
+- 10 CPU cores
+- <= 62 GB RAM
+- <= 90 minutes
+
+Pin thread counts where appropriate:
+
+OMP_NUM_THREADS=10
+MKL_NUM_THREADS=10
+OPENBLAS_NUM_THREADS=10
+NUMEXPR_NUM_THREADS=10
+
+Do this BEFORE importing NumPy / SciPy / sklearn / other libraries that initialize numerical threading.
+
+Set random seeds consistently.
+
+Ensure:
+
+- deterministic feature generation
+- deterministic model training where supported
+- deterministic train/validation ordering
+- deterministic submission ordering
+
+Do not sacrifice correctness merely to force unnecessary parallelism.
+
+---
+
+PHASE 31 — FINAL AUDIT FOR RULE VIOLATIONS
+
+Before finishing, explicitly verify:
+
+PROHIBITED
+
+- external seismic datasets
+- public seismic archives
+- station metadata lookup
+- geology lookup
+- coordinates
+- station-name recovery
+- waveform matching against external archives
+- pretrained models
+- pretrained embeddings
+- externally trained neural networks
+- external seismological corpora
+- pseudo-labeling test data
+- label extraction from IDs
+- row-order leakage
+- exploiting submission probing
+- grouping test records by hidden station
+- using test labels
+- manual test-specific predictions
+
+ALLOWED
+
+- supplied training waveforms
+- supplied labels
+- supplied folds
+- supplied test waveforms
+- training-set feature engineering
+- station-held-out cross-validation
+- unsupervised transformations derived from allowed supplied data
+- classical ML
+- models trained from scratch
+- carefully controlled ensembles
+
+---
+
+PHASE 32 — FINAL DELIVERABLES
+
+The workspace should contain at least:
+
+platform_analysis.md
+dataset_audit.md
+private_lb_reference_analysis.md
+reference_reproduction_plan.md
+metric.py
+baseline_results.csv
+experiment_results.csv
+final_approach.md
+submission_validation_report.txt
+submission.csv
+
+Also preserve the final runnable solver.
+
+Create:
+
+"final_approach.md"
+
+containing:
+
+1. Final representation
+
+Exactly which waveform features are used and why.
+
+2. Final models
+
+Exactly which models are used and why.
+
+3. Validation
+
+Exact station-held-out methodology.
+
+4. Performance
+
+Fold-by-fold results and mean/std.
+
+5. Generalization argument
+
+Why the method is expected to transfer to unseen stations.
+
+6. Runtime
+
+CPU runtime and memory estimate.
+
+7. Rule compliance
+
+Explicit confirmation that no prohibited information was used.
+
+---
+
+CRITICAL WORKING PRINCIPLES
+
+PRINCIPLE 1 — VALIDATION IS THE TRUTH
+
+Never use random record splitting as the primary validation method.
+
+"site/station-held-out folds are mandatory."
+
+PRINCIPLE 2 — SMALL DATA CHANGES THE MODELING STRATEGY
+
+Do not assume a large CNN/Transformer is better.
+
+The known reference already demonstrates that carefully engineered spectral features can outperform a scratch CNN.
+
+PRINCIPLE 3 — THE SITE SIGNATURE MATTERS
+
+The key problem is separating:
+
+"source + path + site"
+
+from the site-dependent frequency response.
+
+Prioritize representations that suppress source/path variation.
+
+PRINCIPLE 4 — MACRO-F1 MATTERS
+
+Do not optimize accuracy at the expense of rare classes.
+
+PRINCIPLE 5 — DEPTH MATTERS
+
+The four outputs represent physically related depth cells.
+
+Investigate this structure, but do not impose unjustified constraints.
+
+PRINCIPLE 6 — GENERALIZATION > COMPLEXITY
+
+A stable 0.31 solution is more credible than an unstable 0.35 solution that only works on one fold.
+
+PRINCIPLE 7 — DO NOT OVERFIT THE LEADERBOARD
+
+Use the supplied station-held-out folds as the main development framework.
+
+PRINCIPLE 8 — EXPERIMENT SCIENTIFICALLY
+
+Every major change must answer:
+
+«What information does this change capture that the previous representation did not?»
+
+Run ablations rather than accumulating random features.
+
+---
+
+IMPORTANT "DO NOT DO THIS" CHECKLIST
+
+Do NOT:
+
+- randomly split waveform records
+- use the test set to fit preprocessing
+- fit PCA on train + validation together
+- tune thresholds using validation/test labels incorrectly
+- blindly force monotonic depth labels
+- use record IDs
+- use file ordering
+- exploit station identifiers in test
+- cluster test records and assign group predictions
+- use external seismic knowledge/data
+- use pretrained weights
+- build an oversized neural network simply because the task uses waveforms
+- create thousands of unstable handcrafted features without selection
+- optimize against only one fold
+- trust tiny leaderboard changes
+- keep an improvement that works only on one fold
+- manually edit the final submission
+- leave malformed cells
+- omit any test IDs
+
+---
+
+EXECUTION ORDER
+
+Follow this exact order:
+
+PHASE 1
+Platform/GitHub reconnaissance
+
+↓
+
+PHASE 2
+Dataset forensic audit
+
+↓
+
+PHASE 3
+Exact label/profile interpretation
+
+↓
+
+PHASE 4
+Exact metric implementation
+
+↓
+
+PHASE 5
+Private-LB #1 reference analysis
+
+↓
+
+PHASE 6
+Baseline reproduction
+
+↓
+
+PHASE 7–12
+Waveform + spectral + H/V + rotation-invariant + multi-window feature engineering
+
+↓
+
+PHASE 13–18
+Model, imbalance, depth structure, ordinal modeling
+
+↓
+
+PHASE 19–21
+Unsupervised representations, KNN, complementary models
+
+↓
+
+PHASE 22–25
+Generalization, adversarial validation, feature stability
+
+↓
+
+PHASE 26–27
+Final model selection toward 0.32+
+
+↓
+
+PHASE 28–31
+Full-data training, submission generation, determinism, rule audit
+
+↓
+
+PHASE 32
+Final deliverables
+
+---
+
+FINAL INSTRUCTION TO CLAUDE CODE
+
+Do not rush directly to the final model.
+
+Work like a competition research engineer.
+
+Inspect → understand → reproduce → measure → improve → stress-test → select → validate → submit.
+
+Do not claim that a model will score 0.32+ on unseen data unless the available evidence supports that conclusion.
+
+The objective is to maximize the probability of exceeding 0.32 on unseen/private data, while minimizing the risk of:
+
+- overfitting
+- validation leakage
+- public-LB overreaction
+- unstable rare-class behavior
+- rule violations
+- runtime failure
+- submission rejection.
+
+When a proposed improvement does not survive station-held-out validation, reject it.
+
+When two approaches have similar CV, prefer the simpler and more stable one.
+
+At the end, clearly identify:
+
+BEST MODEL
+
+BEST FEATURE SET
+
+MEAN 5-FOLD STATION-HOLDOUT SCORE
+
+FOLD-BY-FOLD SCORES
+
+PER-CELL MACRO-F1
+
+EXPECTED GENERALIZATION RISK
+
+FINAL SUBMISSION PATH
+
+RULE-COMPLIANCE STATUS

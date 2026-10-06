@@ -1,0 +1,38 @@
+exp,stage,what_changed,model,features,n_feat,splits,score_mean,score_std,per_split,cell0,cell1,cell2,cell3,decision,notes
+e08-1,features,base families A-K,lr C=0.01,ABCDEFGHIJK,323,3,0.2083,0.0015,0.206|0.209|0.210,0.352,0.445,0.416,0.411,baseline,
+e08-2,features,base families A-K,pls k=6,ABCDEFGHIJK,323,3,0.2002,0.0053,0.208|0.198|0.196,0.356,0.423,0.419,0.403,baseline,
+e08-3,features,base families A-K,ordinal C=0.03,ABCDEFGHIJK,323,3,0.2228,0.0022,0.225|0.220|0.223,0.366,0.456,0.429,0.417,baseline,ordinal is the best cheap family
+e08-4,features,+L Konno-Ohmachi smoothed H/V,lr C=0.01,ABCDEFGHIJKL,361,3,0.2091,0.0030,0.208|0.206|0.213,0.355,0.442,0.419,0.411,neutral,
+e08-5,features,+L Konno-Ohmachi smoothed H/V,pls k=6,ABCDEFGHIJKL,361,3,0.2076,0.0049,0.215|0.204|0.204,0.364,0.425,0.427,0.407,helps pls,
+e08-6,features,+L Konno-Ohmachi smoothed H/V,ordinal C=0.03,ABCDEFGHIJKL,361,3,0.2224,0.0026,0.224|0.224|0.219,0.363,0.453,0.434,0.417,neutral,
+e08-7,features,+M long-window low-frequency H/V,lr C=0.01,ABCDEFGHIJKM,355,3,0.2178,0.0021,0.217|0.216|0.221,0.359,0.456,0.419,0.419,KEEP,+0.0095 over base
+e08-8,features,+M long-window low-frequency H/V,pls k=6,ABCDEFGHIJKM,355,3,0.2043,0.0067,0.213|0.197|0.202,0.350,0.425,0.435,0.402,KEEP,
+e08-9,features,+M long-window low-frequency H/V,ordinal C=0.03,ABCDEFGHIJKM,355,3,0.2302,0.0038,0.235|0.225|0.231,0.362,0.472,0.439,0.417,KEEP,+0.0074 over base; best single number so far
+e08-10,features,+L and +M together,lr C=0.01,ABCDEFGHIJKLM,393,3,0.2148,0.0007,0.214|0.215|0.216,0.357,0.449,0.420,0.418,,L adds nothing on top of M
+e08-11,features,+L and +M together,pls k=6,ABCDEFGHIJKLM,393,3,0.2090,0.0049,0.216|0.205|0.206,0.358,0.428,0.434,0.407,,
+e08-12,features,+L and +M together,ordinal C=0.03,ABCDEFGHIJKLM,393,3,0.2278,0.0009,0.228|0.227|0.229,0.359,0.464,0.439,0.421,DROP L,0.2278 vs 0.2302 for M alone
+e11-1,features,reference on chosen set,ordinal C=0.03,ABCDEFGHIJKM,355,3,0.2302,0.0038,0.235|0.225|0.231,0.362,0.472,0.439,0.417,reference,best single family
+e11-2,features,reference on chosen set,lr C=0.01,ABCDEFGHIJKM,355,3,0.2178,0.0021,0.217|0.216|0.221,0.359,0.456,0.419,0.419,reference,
+e11-3,features,+N short-window high-frequency H/V (aimed at cell 0),ordinal C=0.03,ABCDEFGHIJKMN,385,3,0.2289,0.0038,0.234|0.226|0.226,0.358,0.469,0.442,0.418,REJECT,"designed to lift cell0; cell0 went 0.362->0.358, so the hypothesis failed"
+e10-1,models,ordinal cumulative-link with boosted binary learners,ordgb,ABCDEFGHIJKM,355,1(supplied),0.2380,,0.238,0.391,0.447,0.456,0.420,LEAD,best single family; 110s per 5-fold pass
+e10-2,models,four-class boosting,hgb,ABCDEFGHIJKM,355,1(supplied),0.2353,,0.235,0.407,0.449,0.438,0.412,KEEP,best on cell0 - complementary to ordgb
+e10-3,models,ordinal cumulative-link logistic,ord,ABCDEFGHIJKM,355,1(supplied),0.2346,,0.235,0.374,0.490,0.430,0.410,KEEP,best on cell1; costs 1s
+e10-4,models,extremely randomised trees,et,ABCDEFGHIJKM,355,1(supplied),0.2259,,0.226,0.388,0.441,0.435,0.414,KEEP,
+e10-5,models,shrunk LDA + neighbour vote,ldak,ABCDEFGHIJKM,355,1(supplied),0.2188,,0.219,0.359,0.463,0.412,0.422,candidate,
+e10-6,models,multinomial logistic,lr,ABCDEFGHIJKM,355,1(supplied),0.2165,,0.217,0.368,0.456,0.416,0.409,candidate,
+e10-7,models,partial least squares,pls,ABCDEFGHIJKM,355,1(supplied),0.2135,,0.214,0.372,0.428,0.444,0.397,candidate,best on cell2 among linear models
+e10-8,ensemble,equal-weight average of all 7 families,blend-all7,ABCDEFGHIJKM,355,2,0.2564,0.0004,0.2561|0.2568,,,,,candidate,+0.017 over best single family
+e10-9,ensemble,equal-weight average of top 3 (one boosted/one linear/one bagged),blend-top3,ABCDEFGHIJKM,355,2,0.2575,0.0033,0.2542|0.2608,,,,,candidate,top-k curve is flat from k=2 to 7 so the subset pick is noise-level
+e10-10,ensemble,greedy forward selection with replacement per fold,blend-greedy,ABCDEFGHIJKM,355,2,0.2609,0.0018,0.2591|0.2627,,,,,not adopted,+0.003 over equal weight - inside noise and adds free parameters
+e10-11,decode,per-band weights matched to the training prior,blend-all7,ABCDEFGHIJKM,355,2,0.2609,,0.2638|0.2580,,,,,not adopted,gain not consistent across splits
+e10-12,decode,per-band weights by direct macro-F1 coordinate ascent,blend-all7,ABCDEFGHIJKM,355,2,0.2579,,0.2567|0.2592,,,,,not adopted,models are already balanced so there is nothing to repair
+e15-1,decode,structured joint-profile prior lam=0.5 (all 7),blend-all7,ABCDEFGHIJKM,355,2,0.2618,,0.2687|0.2549,,,,,candidate,best lambda for the 7-family blend
+e15-2,decode,structured joint-profile prior lam=1.0 (top 3),blend-top3,ABCDEFGHIJKM,355,2,0.2733,,0.2676|0.2789,,,,,candidate,+0.016 over argmax on both splits; needs a fresh-split check
+e15-3,decode,joint prior lam>=2 (all 7),blend-all7,ABCDEFGHIJKM,355,2,0.2191,,0.2309|0.2074,,,,,REJECT,over-strong prior collapses onto common profiles
+e14-1,portability,booster max_features omitted (portable default),ordgb,ABCDEFGHIJKM,355,2,0.2470,0.0044,0.243|0.251,0.400,0.460,0.450,0.431,ADOPT,"removes the sklearn>=1.4 dependency AND scores higher"
+e14-2,portability,booster max_features=0.4,ordgb,ABCDEFGHIJKM,355,2,0.2394,0.0014,0.238|0.241,0.389,0.448,0.456,0.425,REJECT,version-fragile and worse
+e18-1,final,top3 equal weight + joint-profile decode lam=1.0 (SHIPPED),blend-top3,ABCDEFGHIJKM,355,2,0.2762,0.0041,0.2721|0.2803,0.4115,0.4850,0.4810,0.4510,SHIPPED,per-cell means of the two splits
+e18-2,final,top3 + argmax (no structured decode),blend-top3,ABCDEFGHIJKM,355,2,0.2619,,,,,,,reference,"the decode is worth +0.014"
+e18-3,final,all 7 families + joint decode lam=0.5,blend-all7,ABCDEFGHIJKM,355,2,0.2656,,,,,,,not adopted,top3 dominates at every lambda
+e18-4,final,ordgb alone + joint decode lam=1.3,ordgb,ABCDEFGHIJKM,355,2,0.2699,,,,,,,not adopted,the blend still adds
+e18-5,selection,select on one split and score on the other,blend-top3,ABCDEFGHIJKM,355,2,0.2759,,0.2715|0.2803,,,,,HONEST ESTIMATE,"includes the cost of choosing subset and lambda; matches the reported 0.2762 because the choice is stable"

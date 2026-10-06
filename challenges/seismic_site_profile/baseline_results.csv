@@ -1,0 +1,26 @@
+exp,stage,model,features,n_feat,oof_score,fold0,fold1,fold2,fold3,fold4,fold_mean,fold_std,cell0_f1,cell1_f1,cell2_f1,cell3_f1,notes
+ref0,baseline,brief reference,2 hand-built scalars,2,0.0678,,,,,,,,,,,,"published, eval set"
+ref1,baseline,brief reference 5NN,log-spectral,,0.1721,,,,,,,,,,,,"published, eval set"
+ref2,baseline,brief reference LR+GB,hand-built,,0.2165,,,,,,,,,,,,"published, eval set - the tier to beat"
+ref3,baseline,brief reference CNN from scratch,log spectrogram + log H/V,,0.1993,,,,,,,,,,,,"published, 53 of 90 min"
+refb,baseline,stated AI baseline,,,0.2800,,,,,,,,,,,,"from solver prompt"
+e01a,repro,LR C=1,hv_f0 + H_cen only,2,0.0287,0.043,0.042,0.049,0.024,0.001,0.0317,0.0174,0.263,0.268,0.287,0.268,"my 2-scalar tier"
+e01b,repro,KNN5 cosine,A+B+C,72,0.1352,0.077,0.184,0.126,0.127,0.129,0.1287,0.0341,0.338,0.364,0.341,0.362,"my 5NN tier"
+e01c,repro,LR C=1,A+B+C,72,0.1513,0.125,0.162,0.158,0.167,0.131,0.1489,0.0172,0.315,0.387,0.389,0.364,
+e01d,repro,HGB lr.06 leaf15 it200,A+B+C,72,0.1849,0.194,0.177,0.155,0.194,0.191,0.1822,0.0152,0.350,0.405,0.402,0.397,
+e01e,repro,LR C=1,all 215,215,0.1533,0.124,0.170,0.144,0.152,0.153,0.1486,0.0150,0.341,0.390,0.357,0.372,
+e01f,repro,LR C=0.1,all 215,215,0.1698,0.148,0.195,0.154,0.164,0.171,0.1663,0.0165,0.339,0.410,0.383,0.378,"regularisation helps"
+e01g,repro,LR C=0.03,all 215,215,0.1818,0.156,0.206,0.171,0.180,0.179,0.1784,0.0160,0.352,0.423,0.392,0.378,
+e01h,repro,HGB lr.06 leaf15 it200,all 215,215,0.2295,0.224,0.229,0.201,0.226,0.244,0.2251,0.0139,0.391,0.440,0.435,0.422,"beats published 0.2165"
+e01i,repro,ET 400 leaf3,all 215,215,0.2122,0.221,0.228,0.175,0.251,0.181,0.2111,0.0290,0.372,0.429,0.423,0.413,
+e02a,ablation,HGB fast it120,A,24,0.1528,0.161,0.139,0.122,0.146,0.169,0.1474,0.0165,0.323,0.360,0.385,0.391,"H/V curve alone"
+e02b,ablation,HGB fast it120,AB,48,0.1820,0.197,0.179,0.156,0.195,0.169,0.1792,0.0156,0.357,0.385,0.402,0.402,
+e02c,ablation,HGB fast it120,ABC,72,0.1853,0.192,0.187,0.139,0.189,0.205,0.1823,0.0227,0.367,0.395,0.412,0.382,
+e02d,ablation,HGB fast it120,ABCD,85,0.1932,0.205,0.210,0.142,0.201,0.189,0.1894,0.0246,0.379,0.393,0.414,0.394,
+e02e,ablation,HGB fast it120,ABCDE,115,0.1848,0.199,0.211,0.142,0.164,0.190,0.1811,0.0253,0.366,0.405,0.391,0.393,
+e02f,ablation,HGB fast it120,ABCDEF,127,0.1972,0.221,0.197,0.161,0.180,0.205,0.1928,0.0207,0.389,0.408,0.410,0.385,
+e02g,ablation,HGB fast it120,ABCDEFG,135,0.2036,0.214,0.200,0.171,0.211,0.200,0.1990,0.0154,0.369,0.417,0.419,0.406,
+e02h,ablation,HGB fast it120,ABCDEFGH,167,0.2190,0.256,0.222,0.171,0.216,0.208,0.2145,0.0273,0.377,0.424,0.445,0.411,
+e02i,ablation,HGB fast it120,ABCDEFGHI,215,0.2149,0.214,0.214,0.186,0.207,0.237,0.2117,0.0165,0.383,0.430,0.428,0.403,
+e02j,ablation,HGB fast it120,ABCDEFGHIJ,283,0.2159,0.213,0.223,0.185,0.240,0.201,0.2123,0.0189,0.391,0.434,0.430,0.393,"cepstral J adds nothing"
+e02k,ablation,HGB fast it120,ABCDEFGHIJK,323,0.2264,0.227,0.241,0.202,0.248,0.200,0.2233,0.0195,0.406,0.437,0.426,0.409,"coda H/V K worth +0.011"

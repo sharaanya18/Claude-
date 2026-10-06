@@ -1,0 +1,23 @@
+SUBMISSION VALIDATION REPORT
+generated            : 2026-10-06 21:05:22 UTC
+file                 : /home/user/Claude-/challenges/seismic_site_profile/working/gate/submission.csv
+runtime of producing run : 493s on 4 cores (dev box)
+
+header               : ['id', 'profile']  (required exactly ['id', 'profile'] in that order)
+header correct       : True
+row count            : 333   (required 333)
+sample_submission rows: 333
+duplicate ids        : 0  []
+missing test ids     : 0  []
+extra ids not in test: 0  []
+id order equals test.csv : True
+invalid/malformed profiles : 0  []
+empty or NaN cells   : 0
+
+predicted band distribution per depth cell
+  cell 0 (0-5 m  ): v1= 82 (24.6%)  v2= 49 (14.7%)  v3=120 (36.0%)  v4= 82 (24.6%)
+  cell 1 (5-10 m ): v1= 70 (21.0%)  v2= 75 (22.5%)  v3=105 (31.5%)  v4= 83 (24.9%)
+  cell 2 (10-20 m): v1= 69 (20.7%)  v2= 72 (21.6%)  v3=107 (32.1%)  v4= 85 (25.5%)
+  cell 3 (20-30 m): v1= 70 (21.0%)  v2= 74 (22.2%)  v3=105 (31.5%)  v4= 84 (25.2%)
+
+VERDICT: PASS - submittable
