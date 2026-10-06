@@ -54,3 +54,6 @@ calibrated marginals; ignoring the "none"/abstain case; unvalidated reduction th
 
 ## Added from AnchorPerm (row-local few-shot matching with a regime shift)
 Compute the Monte-Carlo information ceiling first (learned-patterns L001); build a loss over the hidden block only with anchors as inputs and a fresh random anchor subset each epoch; normalise per row and per role; add per-row reliability (anchor agreement) and calibrate confidence on out-of-fold predictions of clean and simulated-shift copies (L002). Do not expect row-local tricks to recover a changed mapping (L003).
+
+## Added from Whose Second Half (6x6 prefix-to-continuation matching, five ranked solutions read)
+Learn item-to-item affinity from the unlabelled full sequences with several refit-per-fold views (learned-patterns L014-L016), build pair features, double-centre them (L020), train a row-aware head on the exact 720-permutation likelihood or row + column CE (L017, L019), average many feature-bagged members (L018), choose blend / temperature / decoder in-script on OOF (L022), and score test under the same fold pools as train (L015). Do not copy supervised column selection or test-candidate sentences (L023). Digest: `challenges/whose_second_half/reports/top5_digest.md`.
