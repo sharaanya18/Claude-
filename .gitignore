@@ -10,3 +10,11 @@ corpus/*/solutions/
 challenges/*/kaggle_kernel/
 challenges/*/kaggle_out/
 challenges/*/kaggle_data/
+
+# two_puffs: large intermediates and local run dirs
+challenges/two_puffs/dataset/
+challenges/two_puffs/work/*.csv
+challenges/two_puffs/work/*.npy
+challenges/two_puffs/work/*.npz
+challenges/two_puffs/work/*.pkl
+challenges/two_puffs/run*/

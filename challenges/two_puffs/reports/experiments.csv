@@ -1,0 +1,31 @@
+experiment,features,representation,model,target_strategy,calibration,score,RCS,FDS,mean_Brier,ATS_ranking_D,notes
+E00-ref-const-0.5,none,none,constant 0.5,none,none,0.0000,0.0000,0.5000,0.18786,0.0000,"metric zero point reproduced exactly"
+E00-ref-trainmean,none,none,constant train mean,none,none,0.4828,0.4661,0.5000,0.09950,0.0000,"documented 0.4705 on 262 held-out; in-sample on train here"
+E00-oracle-marginfit,train targets,none,inversion only,latent per arm fitted to the 8 exceedances,none,0.9133,0.9702,0.8598,0.00440,0.7196,"documented oracle 0.9116 -> decoding/conventions/metric all verified"
+E00-oracle-jointfit,train targets,none,inversion only,latent fitted incl. ats,none,0.9389,0.9794,0.9001,0.00320,0.8002,"upper bound of the scalar-latent model"
+E01-direct9,205 engineered + pool ref,tabular,LightGBM x9,direct nine probabilities,none,0.5974,0.5629,0.6340,0.07960,0.2680,"reproduces the published 0.6017 reference rung -> CV harness calibrated"
+E01-gen-globallaw,205 engineered + pool ref,tabular,LightGBM L2 on latent mean,latent point + global residual law,implicit,0.5270,0.4524,0.6139,0.10080,0.2278,"FAILED: one global homoscedastic heavy-tailed residual law is far too wide"
+E02-gen-ordinal,205 engineered + pool ref,tabular,ordinal pooled LightGBM ladder (17 levels),conditional survival of the latent,structural,0.6128,0.5751,0.6530,0.07730,0.3061,"beats the published reference; calibration comes from the decode"
+E03-ladder-uniform31,same,tabular,same,same,structural,0.6123,0.5762,0.6506,,,"ladder design is within noise"
+E03-ladder-uniform19,same,tabular,same,same,structural,0.6084,0.5761,0.6425,,,
+E03-ladder-uniform46,same,tabular,same,same,structural,0.6111,0.5749,0.6496,,,
+E04-VOI-R2f0.18,injected noisy latent,tabular,same,same,structural,0.6128,0.5751,0.6530,,,"value-of-information curve, actual latent R2"
+E04-VOI-R2f0.44,injected noisy latent,tabular,same,same,structural,0.6680,0.6509,0.6856,,,
+E04-VOI-R2f0.52,injected noisy latent,tabular,same,same,structural,0.7243,0.7249,0.7237,,,
+E04-VOI-R2f0.58,injected noisy latent,tabular,same,same,structural,0.7819,0.7999,0.7644,,,"0.75 needs latent R2 ~0.55-0.6; actual is 0.18"
+E06-frag-naive-blend,same,tabular,same + phi blended into ats,same,structural,0.6167,0.5603,0.6788,,0.3672,"naive blend wastes most of the FDS gain"
+E07-frag-isotonic,same,tabular,same + isotonic ordering transfer of phi,same,structural + isotonic,0.6239,0.5705,0.6823,,0.3672,"ordering transfer captures the FDS gain at almost no RCS cost"
+E07-frag-direct-GBDT,same,tabular,LightGBM on true fragility,direct fragility,isotonic,0.6151,0.5737,0.6595,,0.2924,"a learned fragility model is WORSE than the generative phi"
+E08-survival-ens3,same,tabular,3 LightGBM configs averaged on the logit scale,same,structural,0.6127,0.5776,0.6499,,,"+0.0025 RCS over a single config"
+E08-latent-law-shift-scale,same,tabular,same + global shift/spread on the latent law,same,structural,0.6127,0.5776,0.6499,,,"no gain: spread 1.00 optimal -> the learned law is already calibrated"
+E08-blend-direct,same,tabular,generative + direct nine-target,same,structural,0.6133,0.5791,0.6496,,,"best weight 0.20 on the direct member"
+E09-lambda-1.0,same,tabular,same,latent = proportional response,structural + isotonic,0.6231,0.5679,0.6836,,,"chosen"
+E09-lambda-0.5,same,tabular,same,latent = sqrt-scaled response,structural + isotonic,0.6217,0.5678,0.6806,,,
+E09-lambda-0.0,same,tabular,same,latent = absolute litres,structural + isotonic,0.6218,0.5676,0.6812,,,"baseline-independent latent did NOT pay"
+E12-frag-borda,205+pool ref,tabular,ordinal ladder x3 + direct member,latent conditional survival,structural + isotonic(Borda),0.6248,0.5668,0.6887,,0.3792,"Borda expected-marginal-rank beats E[frag] (D 0.379 vs 0.360) and implied 4p(1-p) (0.294)"
+E12-frag-median,same,tabular,same,same,structural + isotonic(median),0.6168,0.5666,0.6715,,0.3530,
+E12-frag-Pgt025,same,tabular,same,same,structural + isotonic(P(frag>0.25)),0.6135,0.5658,0.6653,,0.3353,
+FINAL-seed42,220 incl pool ref,tabular,3 LGB ordinal ladders x2 arms + direct member + copula + isotonic,latent conditional survival + exact bootstrap,structural + Borda isotonic,0.6240,0.5672,0.6865,0.07870,0.3788,"shipped solution.py; per-fold 0.6251+-0.0097 worst 0.6110"
+FINAL-seed7,same,tabular,same,same,same,0.6241,0.5673,0.6866,,,"repeat split seed"
+FINAL-seed2024,same,tabular,same,same,same,0.6267,0.5696,0.6895,,,"repeat split seed; across seeds 0.6249+-0.0015"
+FINAL-strip-the-ML,same,tabular,NO learned model (population-marginal latent),population prior + exact bootstrap,structural,0.5369,,,,,"Guidebook 5.3 control, run in-script; models supply 56.7% of skill above the constant floor"

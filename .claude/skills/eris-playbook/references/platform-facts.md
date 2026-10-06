@@ -81,3 +81,31 @@ parameters (HPO must run in the script), self-hosted weights, sharing solutions 
 - **Agent failure modes to exploit (and to avoid).** Validation leakage through preprocessing (MLE-STAR: validation 0.819 -> 0.868 while test fell 0.803 -> 0.734 [S]), time handled as categories, shortcut-taking on planted entity overlap (BaitBench: 57% of runs [S]), winner's-curse selection (AIRA-dojo: oracle selection would add 9-17 pp medal rate; top-3 averaging recovers about 10 pp [S]).
 - **Hidden-shift designs to expect.** Time, entity, scaffold/cluster, domain, subpopulation, label prevalence; WILDS/Wild-Time show ~20% ID-to-OOD drops; a tuned ERM with an honest selection rule is within ~1 point of most "robust" algorithms (DomainBed [S]).
 - **Public sources say nothing about Eris leaderboards or closing; public repos of other solvers' Eris solutions exist and must not be read or copied.**
+
+## Guidebook update ingested 2026-10-06 (`guidebook-2026-10.txt`, 15 pp, supplied by the owner)
+Supersedes earlier recollections where they differ. Corrections that change solver behaviour:
+1. **There IS a free public-score probe.** The flow is two separate uploads: a CSV you upload just to see your score
+   (free, touches neither credit pool, never counted for the leaderboard or review), and the end-to-end script. Only
+   the script run (check 4) consumes a credit. Failing checks 1-3 returns the credit with a 5-minute cooldown.
+   Previous note ("no free probe") was wrong — use the free CSV probe before every credit.
+2. **The four checks are**: CSV grading, Prompt Compliance (LLM vs the overview), Determinism (**an LLM code review,
+   explicitly NOT a re-run**), Script run. "Held-out Answer Ingestion" is not a named check in this version; not
+   reading answers is covered by the overall rules instead.
+3. **Determinism adds two bans** beyond the clock/hardware ones already recorded: **try/except fallbacks** of any
+   kind, and **unused switches or branches that choose between methods even when only one path ever runs**. Also:
+   seed must be passed by name to every model, split and sampler. Explicitly fine: in-script HPO (fixed seed, fixed
+   trials), early stopping on a validation score, AMP/bf16, seeded DataLoader with a fixed worker count.
+4. **Review is relative** (§5.5): unambiguous violations are removed outright; everything else is rated for
+   appropriateness and compared pairwise down the board (rank n vs n+1), a drastic drop at rank n removing rank n.
+   A reviewer may allow a grey technique for one solver and not another in the same competition (§5.3.2).
+5. **No approval route for libraries** (§4.1): the Kaggle image is the whole list, "don't ask a reviewer to sign off
+   on an extra package". Earlier guidance to "ask a reviewer first" applies to *techniques*, never to packages.
+6. **Runtime**: 1.5 h expected max for any challenge in any domain, up to 30 min grace for a genuinely good solution
+   (in practice 5-10 min); a challenge-stated shorter limit must be followed but the 1.5 h cap still applies.
+   Compute is an **A10G**; challenge-specific model-size limits override.
+7. **From-scratch challenges** (§6.5): no pretrained model for anything, including embedding retrieval and
+   distillation; no extra time allowance. Tokenizers/BPE are fine by default when the description is silent, but a
+   reviewer may still reject anything giving an edge over genuinely from-scratch training.
+8. **Grey-area test, stated plainly** (§5.3): strip the ML model out entirely; if it still basically works, it is not
+   compliant. A challenge description permitting a grey technique stops you being rejected *purely for using it*, and
+   nothing more — over-reliance on the dataset's distribution is still a rejection.
