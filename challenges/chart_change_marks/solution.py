@@ -2,8 +2,6 @@ import os, sys, json, random, time
 from pathlib import Path
 
 os.environ["PYTHONHASHSEED"] = "0"
-os.environ["OMP_NUM_THREADS"] = "4"
-os.environ["MKL_NUM_THREADS"] = "4"
 
 import numpy as np
 import pandas as pd
@@ -17,10 +15,12 @@ SUBMISSION_OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("./working/sub
 
 
 SEED = 1234
-NUM_THREADS = 4
+NUM_THREADS = 10
 N_FOLDS = 5
 EPOCHS = 20
-N_MEMBERS = 2
+N_MEMBERS = 1
+N_FULL = 2
+FULL_WEIGHT = 2.0
 BATCH = 16
 LR = 2e-3
 WD = 1e-2
@@ -237,24 +237,31 @@ def _train_fold(X, Wd, M, marks, tr_idx, epochs=EPOCHS, seed=SEED, vflip_aug=Tru
 
 
 @torch.no_grad()
-def predict_net(net, X, Wd, M, idx, tta=True):
+def predict_net(net, X, Wd, M, idx, views=((0, 0), (1, 0), (0, 1), (1, 1))):
     net.eval()
     heats, brks = [], []
     for s in range(0, len(idx), 32):
         ii = idx[s:s + 32]
-        xb = X[ii]; mb = torch.from_numpy(M[ii])
-        o = net(torch.from_numpy(xb), mb)
-        h = torch.sigmoid(o[:, 0]).numpy(); b = F.softmax(o[:, 1:4], 1).numpy()
-        if tta:
-            fl = np.ones(len(ii), bool)
-            xf = augment_batch(xb, Wd[ii], fl, np.zeros(len(ii), bool))
-            of = net(torch.from_numpy(xf), mb)
-            hf = torch.sigmoid(of[:, 0]).numpy(); bf = F.softmax(of[:, 1:4], 1).numpy()
-            for j, w in enumerate(Wd[ii]):
-                hf[j, :w] = hf[j, :w][::-1]; bf[j, :, :w] = bf[j, :, :w][:, ::-1]
-            h = (h + hf) / 2; b = (b + bf) / 2
+        xb = X[ii]
+        mb = torch.from_numpy(M[ii])
+        h = 0.0
+        b = 0.0
+        for hf, vf in views:
+            fl = np.full(len(ii), bool(hf))
+            vv = np.full(len(ii), bool(vf))
+            xv = augment_batch(xb, Wd[ii], fl, vv)
+            o = net(torch.from_numpy(xv), mb)
+            hv = torch.sigmoid(o[:, 0]).numpy()
+            bv = F.softmax(o[:, 1:4], 1).numpy()
+            if hf:
+                for j, w in enumerate(Wd[ii]):
+                    hv[j, :w] = hv[j, :w][::-1]
+                    bv[j, :, :w] = bv[j, :, :w][:, ::-1]
+            h = h + hv / len(views)
+            b = b + bv / len(views)
         for j, w in enumerate(Wd[ii]):
-            heats.append(h[j, :w].copy()); brks.append(b[j, :, :w].copy())
+            heats.append(h[j, :w].copy())
+            brks.append(b[j, :, :w].copy())
     return heats, brks
 
 
@@ -277,23 +284,25 @@ def decode_chart(h, b, thr, win=5, nms=6):
     return [(x, s, p) for x, s, p in cand if s >= thr]
 
 
-def decode_all(heats, brks, thr):
+def decode_all(heats, brks, thr, off=0.0):
     out = []
     for h, b in zip(heats, brks):
-        out.append([{"x": round(x, 2), "p": [float(v) for v in p]} for x, s, p in decode_chart(h, b, thr)])
+        out.append([{"x": round(x + off, 2), "p": [float(v) for v in p]} for x, s, p in decode_chart(h, b, thr)])
     return out
 
 
-def run_cv(df, X, Wd, M, marks, folds, epochs=EPOCHS, **kw):
-    oof_h = [None] * len(df); oof_b = [None] * len(df)
-    for f in range(N_FOLDS):
-        te_idx = np.where(folds == f)[0]; tr_idx = np.where(folds != f)[0]
-        log(f"fold {f}: train {len(tr_idx)} held-out {len(te_idx)}")
-        net = _train_fold(X, Wd, M, marks, tr_idx, epochs=epochs, seed=SEED + f, **kw)
-        hh, bb = predict_net(net, X, Wd, M, te_idx)
-        for k, i in enumerate(te_idx):
-            oof_h[i] = hh[k]; oof_b[i] = bb[k]
-    return oof_h, oof_b
+def fit_offset(heats, brks, truth, thr):
+    errs = []
+    for h, b, t in zip(heats, brks, truth):
+        px = np.array([x for x, s, p in decode_chart(h, b, thr)])
+        if len(px) == 0:
+            continue
+        for m in t:
+            d = m["x"] - px
+            j = int(np.abs(d).argmin())
+            if abs(d[j]) <= 15:
+                errs.append(d[j])
+    return float(np.median(errs)) if errs else 0.0
 
 
 TOL = 5.0
@@ -372,12 +381,14 @@ def main():
             prior[b] += 1
     prior /= prior.sum()
 
-
-    oof_h = [None] * len(tr); oof_b = [None] * len(tr)
-    test_h = [None] * len(te); test_b = [None] * len(te)
-    n_models = N_FOLDS * N_MEMBERS
+    oof_h = [None] * len(tr)
+    oof_b = [None] * len(tr)
+    sum_h = [0.0] * len(te)
+    sum_b = [0.0] * len(te)
+    total_w = 0.0
     for f in range(N_FOLDS):
-        te_idx = np.where(folds == f)[0]; tr_idx = np.where(folds != f)[0]
+        te_idx = np.where(folds == f)[0]
+        tr_idx = np.where(folds != f)[0]
         for mem in range(N_MEMBERS):
             log(f"fold {f} member {mem}: train {len(tr_idx)} held-out {len(te_idx)}")
             net = _train_fold(X, Wd, M, marks, tr_idx, epochs=EPOCHS, seed=SEED + 100 * mem + f)
@@ -387,20 +398,30 @@ def main():
                 oof_b[i] = bb[k] / N_MEMBERS if oof_b[i] is None else oof_b[i] + bb[k] / N_MEMBERS
             th, tb = predict_net(net, Xt, Wt, Mt, np.arange(len(te)))
             for i in range(len(te)):
-                if test_h[i] is None:
-                    test_h[i] = th[i] / n_models; test_b[i] = tb[i] / n_models
-                else:
-                    test_h[i] = test_h[i] + th[i] / n_models; test_b[i] = test_b[i] + tb[i] / n_models
+                sum_h[i] = sum_h[i] + th[i]
+                sum_b[i] = sum_b[i] + tb[i]
+            total_w += 1.0
+    all_idx = np.arange(len(tr))
+    for k in range(N_FULL):
+        log(f"full-data model {k}: train {len(all_idx)}")
+        net = _train_fold(X, Wd, M, marks, all_idx, epochs=EPOCHS, seed=SEED + 1000 + k)
+        th, tb = predict_net(net, Xt, Wt, Mt, np.arange(len(te)))
+        for i in range(len(te)):
+            sum_h[i] = sum_h[i] + FULL_WEIGHT * th[i]
+            sum_b[i] = sum_b[i] + FULL_WEIGHT * tb[i]
+        total_w += FULL_WEIGHT
+    test_h = [v / total_w for v in sum_h]
+    test_b = [v / total_w for v in sum_b]
 
-
+    off = fit_offset(oof_h, oof_b, truth, 0.5)
     grid = [round(t, 2) for t in np.arange(0.30, 0.86, 0.05)]
     skills = []
     for thr in grid:
-        skills.append(cv_skill(cells, truth, decode_all(oof_h, oof_b, thr)))
+        skills.append(cv_skill(cells, truth, decode_all(oof_h, oof_b, thr, off)))
     sm = np.convolve(np.pad(skills, 1, mode="edge"), np.ones(3) / 3, mode="valid")
     thr = grid[int(np.argmax(sm))]
-    log("threshold grid " + " ".join(f"{g}:{s:.3f}" for g, s in zip(grid, skills)) + f" -> {thr}")
-    base = decode_all(oof_h, oof_b, thr)
+    log(f"offset {off:.2f} threshold grid " + " ".join(f"{g}:{s:.3f}" for g, s in zip(grid, skills)) + f" -> {thr}")
+    base = decode_all(oof_h, oof_b, thr, off)
     best = (cv_skill(cells, truth, base), 1.0, 0.0)
     for temp in (0.8, 1.0, 1.25, 1.5):
         for shrink in (0.0, 0.1, 0.2):
@@ -410,8 +431,7 @@ def main():
     _, temp, shrink = best
     log(f"OOF skill (mean over cells >= {MIN_CELL} charts) at thr {thr}: {best[0]:.4f}  bracket temp {temp} shrink {shrink}")
 
-
-    pred = [apply_calib(m, temp, shrink, prior) for m in decode_all(test_h, test_b, thr)]
+    pred = [apply_calib(m, temp, shrink, prior) for m in decode_all(test_h, test_b, thr, off)]
     sub = sample.copy()
     sub["marks"] = [json.dumps(p) for p in pred]
     sub["id"] = te["id"].values

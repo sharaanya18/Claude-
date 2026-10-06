@@ -22,6 +22,7 @@ Proxy = mean skill over look-alike cells (held out in CV). All-5-fold proxy (8 c
 | ens | mean of e24, e24s heat | 2-fold 0.453 | ensembling +0.02 -> 2 members/fold in solution |
 | e24n | drop metadata vector (zeros) | 2-fold 0.395 (vs 0.435 with) | metadata helps; kept |
 Error analysis: recall by true bracket firm .82 / split .32 / weak .17; 84% of true marks are within 5 px of some peak >= .15. Remaining gap = human disagreement on weak/split marks.
+Platform check of v1 CSV (final/v1_backup): score 0.5380; checks passed (Prompt Compliance medium-confidence runtime note only). Local OOF proxy for v1 was 0.467 => platform ~+0.07 above local.
 Kaggle: kernels chart-change-marks-run (v1, 1 member/fold, 24 ep) and chart-change-marks-v2 (2 members, 20 ep) pushed as CPU backups.
 
 ## Error analysis
