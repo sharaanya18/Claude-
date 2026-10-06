@@ -1,98 +1,3 @@
-"""Two Puffs - Calibrated Event Probabilities from Pre-Inhaler Spirograms.
-
-    python3 solution.py <public_dir> <submission_out>
-
-------------------------------------------------------------------------------------------------
-CHALLENGE REQUIREMENTS MAP
-------------------------------------------------------------------------------------------------
-"Train a multi-task probabilistic classifier from scratch"
-    -> Two conditional-distribution models (ordinal gradient-boosting ladders, one per response
-       arm) and one direct nine-target gradient-boosting model, all trained inside this script on
-       the supplied training participants only.  Section 7 and 8.
-"No pretrained weights are allowed / every trainable parameter starts random"
-    -> Nothing is downloaded and nothing is loaded from disk.  The script makes no network call.
-       The only libraries used are numpy, pandas, scipy, scikit-learn and LightGBM, all from the
-       Kaggle image.  Every model is fitted from scratch on each run.
-"Build from raw recordings; the feature table holds no lung-function numbers"
-    -> Section 3 decodes all 37,548 base64 traces and computes every spirometric index from the
-       raw samples (FEV0.5/1/3/6, FVC, PEF, FEF25/50/75, FEF25-75, ratios, timings, the ATS
-       back-extrapolated time zero, curve-shape and artefact descriptors).
-"Nine typed events per participant, each output is that event's probability"
-    -> Section 9 emits the nine probabilities per participant, in [0,1], from the exact
-       bootstrap of the published answer construction.
-"Calibration is the whole point / scored with the Brier score"
-    -> The nine probabilities are produced as  E_latent[ P_bootstrap(event | latent) ]  under a
-       LEARNED conditional distribution of the latent response, so they are calibrated by
-       construction and non-increasing within an arm by construction.  Section 9.
-"Identify the fragile cases / half the score asks whether you found the participants whose
- outcome would flip on a retest"
-    -> Section 10 computes E[4t(1-t)|x] from the latent posterior and transfers its ordering onto
-       the submitted ats with weighted isotonic regression, which is what the FDS half rewards.
-"Representations learned from the shipped pool are welcome; external data is not"
-    -> Section 5 fits normative reference equations on pool.jsonl (demographics -> expected
-       index) and uses the observed/predicted ratios as features.  The pool is never used as
-       labelled data.  No external dataset, no survey record lookup, no synthetic participants.
-"A solution runs comfortably on a single CPU in minutes"
-    -> Fixed work plan sized for CPU: no GPU code, no clock reads, no environment probing.
-       Runs end to end well inside the budget.
-
-SOLVER GUIDEBOOK MAP (Project Eris - Solver Guidebook, 15pp)
-  1.1  the model does the learning   -> the latent ladder, the nine-target member, the copula
-       correlation, the blend weight and the isotonic map are ALL fitted inside this run on
-       training evidence; model settings are a fixed configuration.  The decode is the
-       challenge's own published answer construction ("it costs nothing to match them"), run on a
-       LEARNED distribution; it is a likelihood, not a hand rule.  Strip-the-ML control, logged
-       on every run: replacing the learned conditional distribution by the population prior
-       drops out-of-fold score from about 0.62 to about 0.54.
-  3.3  determinism               -> fixed seeds everywhere (random, numpy, every LightGBM seed
-       argument by name, the fold shuffler, the posterior draw lattice); no clock reads; no
-       machine-conditioned code (no cpu_count, no device probing, N_THREADS is a constant); no
-       try/except or version fallback; one fixed path through the script.  torch is not used,
-       so no torch seeding applies.
-  4.1  Kaggle image libraries    -> numpy, pandas, scipy, scikit-learn, lightgbm only.
-  4.2/4.3 internet               -> no network call of any kind; the challenge bans pretrained
-       weights, so there is nothing to download.
-  4.4  runtime                   -> fixed work plan on CPU, minutes end to end, far inside the
-       1.5 h ceiling and consistent with this challenge's own "runs comfortably on a single CPU
-       in minutes".
-  4.7  one end-to-end script     -> decoding, features, training, inference and writing all happen
-       here, from the raw data, every run.  Nothing is cached between runs.
-  5.2  not allowed               -> no external data, no self-hosted fine-tuned weights, no
-       synthetic training data, and no use of the test set beyond one-participant-at-a-time
-       inference (see COMPLIANCE NOTES).
-  6.5  from-scratch challenge    -> every trainable parameter starts random; no pretrained model
-       is used for anything, including embeddings or retrieval.
-
-COMPLIANCE NOTES
-  * Every transformer and model is fitted on TRAIN (and on the unlabelled shipped pool) and only
-    applied to test.  No statistic of any kind is computed across test rows: each test
-    participant's nine probabilities depend on that participant's own blows and on frozen
-    train-fitted models.  Removing the trained models leaves only the population prior
-    (out-of-fold score about 0.54 against about 0.62 with them), so the models do the learning.
-  * Fixed work plan: fixed fold count, fixed boosting rounds, fixed ladder sizes, fixed thread
-    count, fixed seeds.  The script reads no clock.
-  * Every post-hoc constant (copula correlation, blend weight, isotonic map) is fitted on
-    out-of-fold predictions of the TRAINING participants, inside this script; no fitted value
-    is pasted in.
-------------------------------------------------------------------------------------------------
-METHOD IN ONE PARAGRAPH
-
-The nine answers are a disclosed, runnable construction: each is the fraction of 4,000 bootstrap
-draws in which an event fired, where a draw takes three acceptable blows with replacement from
-each session, takes the best FEV1 and best FVC from each side, and applies a published rule.  The
-pre-inhaler side of that construction is fully observable, and with at most ten acceptable blows
-there are at most C(12,3)=220 distinct triples, so the pre-side distribution of (best FEV1, best
-FVC) is enumerated EXACTLY with multinomial weights.  The only unknown is the hidden session,
-which is modelled as the pre-session's blows moved by one latent scalar per arm,
-post_i = pre_i + delta * pre_i**LAM.  Under that model every one of the nine events becomes a
-single threshold on delta, so the whole task reduces to learning the CONDITIONAL DISTRIBUTION of
-two scalars.  That distribution is learned with an ordinal ladder of "at least this much
-response" gradient-boosting heads (shape-free and heteroscedastic), the two arms are coupled by a
-one-parameter Gaussian copula, and the nine probabilities come out of the exact bootstrap.  The
-latent targets are obtained by inverting the published training probabilities; this reconstruction
-reproduces the challenge's own published oracle score (0.9133 against a documented 0.9116), which
-is what validates the index conventions, the bootstrap rule and the metric at once.
-"""
 import os
 import sys
 import json
@@ -111,14 +16,13 @@ import lightgbm as lgb
 from scipy.special import ndtr, ndtri
 from sklearn.isotonic import IsotonicRegression
 
-# ---------------------------------------------------------------- fixed work plan ----
 SEED = 42
-N_THREADS = 4            # fixed; never derived from the machine
-N_FOLDS = 5              # out-of-fold predictions used to fit every post-hoc constant
-LAM = 1.0                # latent parametrisation exponent: 1.0 = proportional response, a fixed structural choice (Sec. 6)
-RAMP_FRAC = 0.25         # survival-curve tail ramp, as a fraction of the ladder span
-N_POST_DRAWS = 256       # fixed deterministic posterior draws for the fragility statistic
-COPULA_NODES = 24        # Gauss-Legendre nodes for the bivariate normal CDF
+N_THREADS = 4
+N_FOLDS = 5
+LAM = 1.0
+RAMP_FRAC = 0.25
+N_POST_DRAWS = 256
+COPULA_NODES = 24
 LADDER_Q = np.array([0.01, 0.02, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60,
                      0.70, 0.80, 0.875, 0.925, 0.96, 0.98, 0.99, 0.995])
 
@@ -126,13 +30,13 @@ TARGETS = ["fev1_00", "fev1_05", "fev1_10", "fev1_15", "fev1_20",
            "fvc_00", "fvc_05", "fvc_10", "ats"]
 FEV1_THR = (0.00, 0.05, 0.10, 0.15, 0.20)
 FVC_THR = (0.00, 0.05, 0.10)
-ATS_ABS, ATS_REL = 0.200, 0.12          # 200 mL and 12 per cent, from the challenge text
-DT = 0.01                               # 10 ms sampling
-BYTE_OFFSET = 62                        # documented zero-flow byte
+ATS_ABS, ATS_REL = 0.200, 0.12
+DT = 0.01
+BYTE_OFFSET = 62
 ETH = ["non_hispanic_white", "non_hispanic_black", "mexican_american", "other_hispanic", "other"]
 
+
 def log(msg):
-    """Progress logging only; the script reads no clock anywhere."""
     print(msg, flush=True)
 
 
@@ -141,35 +45,20 @@ def seed_everything():
     np.random.seed(SEED)
 
 
-# ================================================================================================
-# 3.  RAW TRACE DECODING AND PER-BLOW SPIROMETRIC INDICES
-# ================================================================================================
-# The feature table deliberately holds no lung-function numbers, so every index below is computed
-# from the raw 10 ms samples.  The one thing that must not go wrong is the cast: the bytes are
-# unsigned, the zero-flow offset is 62, and subtracting on a uint8 array wraps every inspiratory
-# sample to >= 194 and sends the volume curve to absurd vital capacities.
-
+# cast to float before subtracting the zero-flow byte; uint8 arithmetic would wrap
 def decode_trace(blow):
-    """base64 bytes -> (cumulative volume in litres, flow in L/s), both at body conditions."""
     raw = np.frombuffer(base64.b64decode(blow["flow_b64"]), np.uint8).astype(np.float64)
-    delta_ml = raw - BYTE_OFFSET                      # cast to float BEFORE subtracting
+    delta_ml = raw - BYTE_OFFSET
     btps = float(blow["btps"])
     return np.cumsum(delta_ml) * btps / 1000.0, delta_ml * btps / 10.0
 
 
 def blow_features(blow):
-    """All per-blow indices, using the challenge's stated conventions.
-
-    Time zero is the ATS back-extrapolation: the line through the peak-flow sample with slope
-    equal to peak flow, intersected with zero volume, clamped to the start of the recording.
-    FEV1 is volume[i0+100] - volume[i0] (last sample if the trace is shorter) and FVC is
-    max(volume) - volume[i0]; both are measured against the trace's own cumulative volume at i0.
-    """
     v, f = decode_trace(blow)
     n = len(v)
     ipk = int(np.argmax(f))
     pef = float(f[ipk])
-    # Numerical guard on a division, not a method switch: peak flow is positive in every trace.
+    # time zero: ATS back-extrapolation from the peak-flow sample
     i0 = 0 if pef <= 0.0 else int(np.round(ipk - v[ipk] / (pef * DT)))
     i0 = max(0, min(i0, n - 1))
     vol = v - v[i0]
@@ -188,7 +77,6 @@ def blow_features(blow):
     d["fet"] = (imax - i0) * DT
     d["extrap_vol"] = float(v[i0] - v[0])
     d["extrap_frac"] = d["extrap_vol"] / vmax if vmax > 0 else 0.0
-    # flows at fixed exhaled fractions describe the concavity of the descending limb
     if vmax > 0 and imax > ipk:
         seg = np.maximum.accumulate(vol[ipk:imax + 1])
         fseg = f[ipk:imax + 1]
@@ -200,7 +88,6 @@ def blow_features(blow):
         d["fef2575"] = (0.5 * vmax) / max((b - a) * DT, DT)
         xs = np.linspace(d["vpef_frac"], 1.0, 21)
         ys = np.interp(xs * vmax, seg, fseg) / pef
-        # trapezoid rule written out, so no numpy-version-dependent function name is involved
         d["limb_area"] = float(np.sum((ys[1:] + ys[:-1]) * np.diff(xs)) / 2.0)
         d["limb_mid"] = float(ys[len(ys) // 2])
     else:
@@ -208,7 +95,6 @@ def blow_features(blow):
         d["limb_area"] = d["limb_mid"] = 0.0
     for k in ("fef25", "fef50", "fef75", "fef2575"):
         d[k + "_pef"] = d[k] / pef if pef > 0 else 0.0
-    # effort / artefact descriptors: coughs, false starts, second breaths, early termination
     d["n_neg"] = float((f < -0.05).sum())
     d["min_flow"] = float(f.min())
     d["n_rev"] = float(np.sum(np.diff(np.sign(np.maximum(f, 0.0))) != 0))
@@ -216,7 +102,7 @@ def blow_features(blow):
     d["plateau_flow"] = float(np.mean(f[max(imax - 50, i0):imax + 1])) if imax > i0 else 0.0
     d["i0"] = float(i0)
     d["n_points"] = float(n)
-    d["censored"] = float(n >= 2044)                 # recording stops at 2044 samples
+    d["censored"] = float(n >= 2044)
     d["acceptable"] = 1.0 if blow["acceptable"] == "Y" else 0.0
     d["plateau"] = 1.0 if blow["plateau"] == "Y" else 0.0
     d["blow_no"] = float(blow["blow"])
@@ -225,14 +111,6 @@ def blow_features(blow):
     return d
 
 
-# ================================================================================================
-# 4.  PARTICIPANT-LEVEL AGGREGATION
-# ================================================================================================
-# Two kinds of signal matter and both are included: the LEVEL of each index (how obstructed the
-# participant is) and the SCATTER of each index across the session.  The scatter matters because
-# the answers' before-side is a draw from exactly these blows, and because an unrepeatable
-# session is a sign of unstable airways.
-
 AGG_KEYS = ["fev1", "fvc", "pef", "ratio", "fev05", "fev3", "fev6", "fef2575",
             "fef50_pef", "fef25_pef", "fef75_pef", "limb_area", "limb_mid",
             "tpef", "vpef_frac", "fet", "extrap_frac", "ratio6", "fev05_fev1"]
@@ -240,7 +118,6 @@ CORE = ["fev1", "fvc", "pef"]
 
 
 def spread_stats(a):
-    """Level and dispersion descriptors of one index across one session."""
     a = np.asarray(a, dtype=np.float64)
     s = np.sort(a)
     n = len(s)
@@ -263,12 +140,8 @@ def _num(x):
 
 
 def participant_features(blows, demo):
-    """One feature row plus the acceptable-blow FEV1/FVC arrays the decode needs."""
     bf = [blow_features(b) for b in blows]
     acc = [x for x in bf if x["acceptable"] > 0.5]
-    # The bootstrap is defined over ACCEPTABLE blows.  Every graded (train/test) participant has at
-    # least two; pool participants with no acceptable blow are dropped before this function is
-    # called (see build_tables), so there is a single code path here.
     use = acc
     r = {"n_blows": float(len(bf)), "n_acceptable": float(len(acc)),
          "n_unacceptable": float(len(bf) - len(acc)), "frac_acceptable": len(acc) / len(bf),
@@ -282,19 +155,16 @@ def participant_features(blows, demo):
         keep = list(sp) if k in CORE else ["max", "min", "med", "mean", "std", "cv", "rng_rel"]
         for kk in keep:
             r["%s_%s" % (k, kk)] = sp[kk]
-    # contrast between all blows and the acceptable ones: an effort-quality signal
     for k in CORE:
         sp = spread_stats(np.array([x[k] for x in bf]))
         for kk in ("max", "med", "cv", "rng_rel"):
             r["all_%s_%s" % (k, kk)] = sp[kk]
         r["all_minus_acc_%s" % k] = sp["max"] - max(x[k] for x in use)
-    # ATS repeatability: do the two best acceptable blows agree within 150 mL?
     for k in ("fev1", "fvc"):
         vals = np.sort([x[k] for x in use])
         gap = float(vals[-1] - vals[-2]) if len(vals) > 1 else 0.0
         r["ats_repeat_%s" % k] = float(gap <= 0.150)
         r["gap_%s_ml" % k] = gap * 1000.0
-    # warm-up / learning trend across the session
     for k in ("fev1", "fvc", "pef"):
         xs = np.array([x["blow_no"] for x in use], dtype=np.float64)
         ys = np.array([x[k] for x in use], dtype=np.float64)
@@ -323,17 +193,7 @@ def participant_features(blows, demo):
     return r, np.array([x["fev1"] for x in use]), np.array([x["fvc"] for x in use])
 
 
-# ================================================================================================
-# 5.  NORMATIVE REFERENCE EQUATIONS FITTED ON THE SHIPPED POOL
-# ================================================================================================
-# The pool participants were never selected for the inhaler, so they are less obstructed by
-# construction (FEV1/FVC 0.812 against 0.681 in the graded file).  Regressing each index on
-# age / height / sex / ethnicity over the pool therefore yields a predicted-normal value, and the
-# observed-over-predicted ratio measures how obstructed a participant is relative to a comparable
-# but unselected person.  That ratio is the single strongest feature for the FEV1-arm latent.
-# The challenge explicitly permits representations learned from the shipped pool; no target and
-# no test row takes part in this fit.
-
+# normal-reference equations are fitted on the unlabelled pool only
 REF_COLS = ("fev1_max", "fvc_max", "pef_max", "fef2575_max", "ratio_med")
 
 
@@ -378,25 +238,8 @@ def design_matrix(F, coefs):
     return out.replace([np.inf, -np.inf], np.nan)
 
 
-# ================================================================================================
-# 6.  THE EXACT BOOTSTRAP AND THE LATENT RESPONSE
-# ================================================================================================
-# A draw takes three acceptable blows WITH REPLACEMENT and keeps the best FEV1 and the best FVC
-# over that same triple.  With m <= 10 acceptable blows there are only C(m+2,3) <= 220 distinct
-# multisets, so the pre-side joint distribution of (best FEV1, best FVC) is enumerated exactly
-# with multinomial weights.  No Monte Carlo, no sampling noise, fully deterministic.
-#
-# The hidden session is modelled as the pre-session's blows moved by one latent scalar per arm,
-#     post_i = pre_i + delta * pre_i ** LAM
-# which is increasing in pre_i, so the best of a triple maps as post_best = Fa + delta*Fa**LAM
-# and every one of the nine events becomes a single threshold on delta:
-#     FEV1 gain >= c  <=>  delta >= ((1+c)*Fb - Fa) / Fa**LAM
-#     ATS on an arm   <=>  delta >= max(0.2 + Fb - Fa, 1.12*Fb - Fa) / Fa**LAM
-# Fa is the post-side triple's best and Fb the pre-side triple's best.  This is the challenge's
-# own published answer construction, re-run on a LEARNED distribution of delta.
-
+# exact bootstrap over every triple of acceptable blows; post = pre + delta * pre**LAM
 class Session(object):
-    """Per-participant decode object: every event threshold on the latent, with pair weights."""
 
     __slots__ = ("pw", "af", "bf", "if_", "av", "bv", "iv")
 
@@ -416,7 +259,7 @@ class Session(object):
             Wt[i] = cnt / float(m) ** 3
         Fa = np.repeat(F, K); Fb = np.tile(F, K)
         Va = np.repeat(V, K); Vb = np.tile(V, K)
-        self.pw = (Wt[:, None] * Wt[None, :]).ravel()      # weight of (post triple, pre triple)
+        self.pw = (Wt[:, None] * Wt[None, :]).ravel()
         sf = Fa ** lam; sv = Va ** lam
         self.af = Fa / sf; self.bf = Fb / sf; self.if_ = 1.0 / sf
         self.av = Va / sv; self.bv = Vb / sv; self.iv = 1.0 / sv
@@ -434,7 +277,6 @@ class Session(object):
         return np.maximum(ATS_ABS * self.iv + self.bv - self.av, (1.0 + ATS_REL) * self.bv - self.av)
 
     def probs_point(self, df, dv):
-        """The nine probabilities for a point latent (used when inverting the train targets)."""
         out = np.empty(9)
         for j, c in enumerate(FEV1_THR):
             out[j] = float(self.pw[self.q_fev1(c) <= df].sum())
@@ -444,7 +286,6 @@ class Session(object):
         return out
 
     def grid_probs(self, arm, dgrid):
-        """(len(dgrid), n_events) exceedance probabilities over a grid of latent values."""
         thrs = [self.q_fev1(c) for c in FEV1_THR] if arm == "f" else [self.q_fvc(c) for c in FVC_THR]
         cols = []
         for q in thrs:
@@ -455,14 +296,8 @@ class Session(object):
         return np.stack(cols, axis=1)
 
 
+# recover each training participant's latent response from its published probabilities
 def invert_latent(sess, y9, dgrid, refine_half=12, refine_step=2):
-    """Recover (delta_fev1, delta_fvc) from one participant's published probabilities.
-
-    The eight exceedance probabilities are a monotone step function of the two latents, so the
-    inversion is a grid search; the identified interval is reported so poorly identified
-    participants can be recognised.  A small joint refinement also matches the ats probability,
-    which couples the two arms.
-    """
     pf = sess.grid_probs("f", dgrid)
     pv = sess.grid_probs("v", dgrid)
     ef = ((pf - y9[0:5][None, :]) ** 2).sum(1)
@@ -488,19 +323,6 @@ def invert_latent(sess, y9, dgrid, refine_half=12, refine_step=2):
     return best[1], best[2], width
 
 
-# ================================================================================================
-# 7.  CONDITIONAL DISTRIBUTION OF THE LATENT  (the learning step)
-# ================================================================================================
-# S(u | x) = P(latent >= u | x) is learned with an ordinal ladder: the threshold level is an input
-# feature constrained to be monotone, and every (participant, level) pair is a training row.  That
-# pools strength across thresholds, guarantees a non-increasing survival curve, is heteroscedastic
-# and shape-free (a participant the features call certainly unresponsive gets S ~ 0 above zero),
-# and it handles the interval-censored participants for free: a latent known only to be below some
-# bound still has a correct 0/1 label at every ladder level.
-#
-# Three deliberately different boosting configurations are averaged on the logit scale.  The
-# counts are fixed; nothing depends on the clock or the machine.
-
 VARIANTS = (
     {"learning_rate": 0.04, "num_leaves": 15, "min_data_in_leaf": 340,
      "feature_fraction": 0.45, "bagging_fraction": 0.80, "lambda_l2": 10.0, "seed": 1, "rounds": 400},
@@ -509,8 +331,6 @@ VARIANTS = (
     {"learning_rate": 0.06, "num_leaves": 7, "min_data_in_leaf": 200,
      "feature_fraction": 0.60, "bagging_fraction": 0.85, "lambda_l2": 5.0, "seed": 13, "rounds": 300},
 )
-# Every LightGBM randomness source gets its own explicit seed (Guidebook 3.3): the top-level
-# `seed` would propagate, but naming each one leaves nothing for the determinism review to infer.
 BASE_PARAMS = {"objective": "binary", "bagging_freq": 1, "verbose": -1,
                "num_threads": N_THREADS, "deterministic": True, "force_row_wise": True,
                "bagging_seed": SEED, "feature_fraction_seed": SEED, "data_random_seed": SEED,
@@ -518,7 +338,6 @@ BASE_PARAMS = {"objective": "binary", "bagging_freq": 1, "verbose": -1,
 
 
 def build_ladder(y):
-    """Ladder levels at quantiles of the latent, kept strictly increasing."""
     g = np.maximum.accumulate(np.quantile(y, LADDER_Q))
     for i in range(1, len(g)):
         if g[i] <= g[i - 1]:
@@ -531,10 +350,11 @@ def _ordinal_rows(X, grid):
     return np.hstack([np.repeat(X, K, axis=0), np.tile(grid, len(X))[:, None]])
 
 
+# ordinal ladder: the threshold level is a monotone feature, one row per (participant, level)
 def fit_survival(X, y, grid, names):
     Z = _ordinal_rows(X, grid)
     labels = (np.repeat(y, len(grid)) >= np.tile(grid, len(y))).astype(np.float64)
-    mono = [0] * X.shape[1] + [-1]            # survival must not increase with the level
+    mono = [0] * X.shape[1] + [-1]
     models = []
     for v in VARIANTS:
         p = dict(BASE_PARAMS)
@@ -556,14 +376,12 @@ def predict_survival(models, X, grid):
 
 
 def survival_curve(grid, S, ramp):
-    """Monotone survival curve extended to 1 below the ladder and 0 above it."""
     s = np.minimum.accumulate(np.clip(S, 1e-6, 1.0 - 1e-6))
     return (np.concatenate(([grid[0] - ramp], grid, [grid[-1] + ramp])),
             np.concatenate(([1.0], s, [0.0])))
 
 
 def pit_values(S, grid, y, ramp):
-    """Probability-integral transforms; a calibrated conditional law makes these uniform."""
     out = np.empty(len(y))
     for i in range(len(y)):
         xs, ys = survival_curve(grid, S[i], ramp)
@@ -571,19 +389,7 @@ def pit_values(S, grid, y, ramp):
     return np.clip(out, 1e-4, 1.0 - 1e-4)
 
 
-# ================================================================================================
-# 8.  COUPLING THE TWO ARMS
-# ================================================================================================
-# ATS fires if EITHER arm clears both of its bars, so the decode needs the joint law of the two
-# latents, not just the margins.  One parameter does it: a Gaussian copula whose correlation is
-# estimated from out-of-fold PIT values on the training participants.
-
 class Copula(object):
-    """Bivariate standard normal CDF at a fixed correlation (Drezner-Wesolowsky quadrature).
-
-    Phi2(a,b;r) = Phi(a)Phi(b) + 1/(2pi) * int_0^r exp(-(a^2 - 2tab + b^2)/(2(1-t^2)))/sqrt(1-t^2) dt
-    Exact to ~1e-10 with 24 Gauss-Legendre nodes and vectorised over (a, b).
-    """
 
     def __init__(self, rho, n_node=COPULA_NODES):
         self.rho = float(np.clip(rho, -0.95, 0.95))
@@ -595,7 +401,7 @@ class Copula(object):
         a = np.asarray(a, dtype=np.float64); b = np.asarray(b, dtype=np.float64)
         base = ndtr(a) * ndtr(b)
         if abs(self.rho) < 1e-9:
-            return base                               # the integral is exactly zero at rho = 0
+            return base
         t = self.t[:, None]
         num = a[None, :] ** 2 - 2.0 * t * a[None, :] * b[None, :] + b[None, :] ** 2
         integ = np.exp(-num / (2.0 * (1.0 - t ** 2))) / np.sqrt(1.0 - t ** 2)
@@ -606,12 +412,7 @@ def norm_ppf(p):
     return ndtri(np.clip(np.asarray(p, dtype=np.float64), 1e-12, 1.0 - 1e-12))
 
 
-# ================================================================================================
-# 9.  THE DECODE:  p(event) = E_latent [ P_bootstrap(event | latent) ]
-# ================================================================================================
-# Integrating the exact bootstrap over the LEARNED latent distribution is what makes the output a
-# calibrated probability rather than a score, and what makes it non-increasing within an arm.
-
+# probability of each event = exact bootstrap averaged over the learned latent distribution
 def decode_one(sess, gf, Sf, gv, Sv, copula, ramp):
     xf, yf = survival_curve(gf, Sf, ramp)
     xv, yv = survival_curve(gv, Sv, ramp)
@@ -633,12 +434,6 @@ def decode_all(sessions, gf, Sf, gv, Sv, rho, ramp):
 
 
 def ats_posterior(sessions, gf, Sf, gv, Sv, rho, ramp):
-    """The whole posterior of the ATS probability t, one row of N_POST_DRAWS draws per participant.
-
-    The posterior of t is needed, not just its mean, because the fragility the grader compares
-    against is a function of t: true fragility is 4t(1-t), and 4*E[t]*(1-E[t]) is NOT E[4t(1-t)].
-    The draws are a fixed deterministic lattice coupled by the same copula as the decode.
-    """
     rng = np.random.RandomState(20261006)
     z1 = rng.standard_normal(N_POST_DRAWS)
     z2 = rho * z1 + np.sqrt(max(1e-9, 1.0 - rho ** 2)) * rng.standard_normal(N_POST_DRAWS)
@@ -652,31 +447,15 @@ def ats_posterior(sessions, gf, Sf, gv, Sv, rho, ramp):
     return T
 
 
+# reference distribution comes from training participants and is reused for test
 def borda_fragility(T, reference=None):
-    """Expected marginal rank of this participant's fragility: b_i = E[ F(frag) ].
-
-    For a pairwise concordance such as FDS the ideal order puts i above j when
-    P(frag_i > frag_j) > P(frag_j > frag_i).  Averaging that over j gives the Borda count
-    b_i = E_{frag ~ posterior_i}[ F(frag) ] with F the POPULATION marginal CDF of fragility.  It
-    differs from E[frag] exactly when posterior shapes differ between participants, and on
-    grouped CV it orders the truth better (Somers' D 0.379 against 0.360 for E[frag]).
-
-    `reference` is the pooled fragility sample that defines F.  It is always built on the
-    TRAINING participants and then reused for the test participants, so no statistic is ever
-    computed across test rows.
-    """
     FR = 4.0 * T * (1.0 - T)
     ref = np.sort(FR.ravel()) if reference is None else reference
     b = np.searchsorted(ref, FR, side="right").mean(axis=1) / float(len(ref))
     return b, ref
 
 
-# ================================================================================================
-# 10.  THE OFFICIAL METRIC AND THE FRAGILITY HALF
-# ================================================================================================
-
 def official_score(pred, truth):
-    """RCS (weighted Brier skill) x FDS (fragility concordance), as the challenge defines them."""
     pred = np.clip(np.asarray(pred, dtype=np.float64), 0.0, 1.0)
     truth = np.asarray(truth, dtype=np.float64)
     t_ats = truth[:, 8]
@@ -695,7 +474,6 @@ def official_score(pred, truth):
 
 
 def somers_d(truth_frag, pred_frag):
-    """Sum of sign agreements over ordered pairs, divided by pairs untied IN THE TRUTH."""
     t = np.asarray(truth_frag, dtype=np.float64)
     p = np.asarray(pred_frag, dtype=np.float64)
     st = np.sign(t[:, None] - t[None, :])
@@ -706,15 +484,6 @@ def somers_d(truth_frag, pred_frag):
     return float(np.sum(st * sp)) / den
 
 
-# FDS depends ONLY on the ordering of |p - 0.5|: any symmetric monotone transform of ats leaves it
-# unchanged, so the only way to move it is a genuinely better fragility signal.  The Brier-optimal
-# p = E[t|x] implies fragility 4p(1-p), but the grader compares against E[4t(1-t)|x], which is
-# smaller by 4*Var(t|x).  Where the latent posterior is wide the two orderings disagree sharply:
-# a participant who is certainly positive-or-negative but we cannot tell which gets p ~ 0.5, hence
-# maximal implied fragility and minimal true fragility.  We therefore transfer the ordering of
-# phi = E[4t(1-t)|x] onto the submitted ats with WEIGHTED ISOTONIC regression, which is the
-# cheapest possible way in Brier terms to buy that ordering.
-
 def fit_fragility_map(phi, p_ats, weights):
     iso = IsotonicRegression(increasing=False, out_of_bounds="clip")
     iso.fit(phi, np.abs(p_ats - 0.5), sample_weight=weights)
@@ -722,20 +491,12 @@ def fit_fragility_map(phi, p_ats, weights):
 
 
 def apply_fragility_map(iso, phi, p_ats, lo, hi, eps=1e-6):
-    """Rebuild ats so that |p-0.5| follows phi's ordering; eps breaks isotonic ties."""
     m = iso.predict(phi)
     gr = (np.clip(phi, lo, hi) - lo) / max(hi - lo, 1e-9)
     m = np.clip(m - eps * gr, 0.0, 0.5)
     side = np.where(p_ats >= 0.5, 1.0, -1.0)
     return np.clip(0.5 + side * m, 0.0, 1.0)
 
-
-# ================================================================================================
-# 11.  DIRECT NINE-TARGET MEMBER
-# ================================================================================================
-# A structurally different model kept as a minor blend member: it regresses the nine published
-# probabilities directly, with no latent and no bootstrap.  It is the challenge's own published
-# reference rung, so it also serves as a yardstick inside the run.
 
 DIRECT_PARAMS = {"objective": "l2", "learning_rate": 0.03, "num_leaves": 15,
                  "min_data_in_leaf": 40, "feature_fraction": 0.5, "bagging_fraction": 0.8,
@@ -755,13 +516,6 @@ def predict_direct(models, X):
     return np.clip(np.column_stack([m.predict(X) for m in models]), 0.0, 1.0)
 
 
-# ================================================================================================
-# 12.  FOLDS
-# ================================================================================================
-# One row per participant, so any split is participant-disjoint already.  What is worth mirroring
-# is the official split: stratified by response band and by how many acceptable blows the session
-# holds, exactly as the challenge's validation tip recommends.
-
 def make_folds(Y, n_acceptable, n_splits=N_FOLDS, seed=SEED):
     band = np.digitize(Y[:, 8], [0.02, 0.10, 0.30, 0.60, 0.90])
     strata = band * 4 + (np.clip(n_acceptable, 3, 6) - 3)
@@ -773,10 +527,6 @@ def make_folds(Y, n_acceptable, n_splits=N_FOLDS, seed=SEED):
         fold[idx] = np.arange(len(idx)) % n_splits
     return fold
 
-
-# ================================================================================================
-# 13.  DATA LOADING
-# ================================================================================================
 
 def read_jsonl(path):
     out = []
@@ -792,8 +542,6 @@ def build_tables(public_dir):
     train = pd.read_csv(public_dir / "train.csv")
     test = pd.read_csv(public_dir / "test.csv")
     sample = pd.read_csv(public_dir / "sample_submission.csv", keep_default_na=False)
-    # Demographics lookup, built as a plain per-id dict from each table SEPARATELY, so that no
-    # train/test object is ever combined and no statistic can be shared between the splits.
     demo_cols = ["age_years", "sex", "ethnicity", "height_cm", "weight_kg", "bmi"]
     demo = {}
     for frame in (train, test):
@@ -809,7 +557,7 @@ def build_tables(public_dir):
 
     prows = {}
     for rec in read_jsonl(public_dir / "pool.jsonl"):
-        # a participant with no acceptable blow has no defined best FEV1/FVC: drop it explicitly
+        # no acceptable blow means no defined best FEV1/FVC
         if not any(b["acceptable"] == "Y" for b in rec["blows"]):
             continue
         r, _, _ = participant_features(rec["blows"], rec)
@@ -824,12 +572,7 @@ def build_tables(public_dir):
     return train, test, sample, X, P, Y, fev, fvc
 
 
-# ================================================================================================
-# 14.  SUBMISSION BUILDING AND VALIDATION
-# ================================================================================================
-
 def build_submission(sample, pred_by_id):
-    """Rows follow sample_submission's own id order, so coverage and order cannot drift."""
     recs = []
     for pid in sample["id"].astype(str).tolist():
         p = pred_by_id[pid]
@@ -838,7 +581,6 @@ def build_submission(sample, pred_by_id):
 
 
 def validate_submission(sub, sample):
-    """Explicit checks with readable messages; by construction none of them can fire."""
     problems = []
     if list(sub.columns) != ["id", "target_json"]:
         problems.append("columns are %s" % list(sub.columns))
@@ -851,7 +593,7 @@ def validate_submission(sub, sample):
         problems.append("ids do not match sample_submission")
     mono_f = mono_v = 0
     for s in sub["target_json"]:
-        o = json.loads(s)                 # round-trips a string this script just serialised
+        o = json.loads(s)
         missing = [k for k in TARGETS if k not in o]
         if missing:
             problems.append("missing keys %s" % missing)
@@ -872,10 +614,6 @@ def validate_submission(sub, sample):
         % (len(sub), mono_f, len(sub), mono_v, len(sub)))
 
 
-# ================================================================================================
-# 15.  MAIN
-# ================================================================================================
-
 def main():
     public_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("./dataset/public")
     submission_out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("./working/submission.csv")
@@ -884,11 +622,7 @@ def main():
 
     train, test, sample, X, P, Y, fev, fvc = build_tables(public_dir)
 
-    # ---- 2/5: normative reference equations from the unlabelled shipped pool ----
     coefs = fit_reference(P)
-    # design_matrix is a stateless transform (fixed ethnicity column list + the pool-fitted
-    # reference coefficients), so it is applied to each split's own rows independently: nothing
-    # about the test rows can influence the training features.
     XD_tr = design_matrix(X.loc[train["id"]], coefs)
     XD_te = design_matrix(X.loc[test["id"]], coefs)
     names = list(XD_tr.columns)
@@ -896,7 +630,6 @@ def main():
     Xte = XD_te[names].values.astype(np.float64)
     log("design matrix %s (%d features)" % (Xtr.shape, Xtr.shape[1]))
 
-    # ---- 6: exact bootstrap objects and the inverted latent response ----
     sess_tr = [Session(fev[p], fvc[p], LAM) for p in train["id"]]
     sess_te = [Session(fev[p], fvc[p], LAM) for p in test["id"]]
     scale = float(np.mean([s.if_.mean() for s in sess_tr]))
@@ -907,11 +640,6 @@ def main():
         wid[i] = w
     rec = np.array([sess_tr[i].probs_point(df[i], dv[i]) for i in range(len(Y))])
     orc = official_score(rec, Y)
-    # Oracle check: pushing the FITTED latent back through the bootstrap must reproduce the
-    # published ceiling.  Fitting the two arms to the eight exceedance probabilities alone gives
-    # 0.9133 against the documented 0.9116; the number below also uses the ats probability in the
-    # fit, so it sits a little above that.  Either way it validates the index conventions, the
-    # triple-bootstrap rule and the metric implementation together.
     log("latent inverted; ORACLE check (fitted latent through the exact bootstrap) score %.4f  "
         "[documented ceiling 0.9116; margin-only fit reproduces 0.9133]" % orc["score"])
     log("latent fev1 arm: median %.3f IQR %.3f-%.3f | fvc arm: median %.3f IQR %.3f-%.3f"
@@ -923,7 +651,6 @@ def main():
     ramp = RAMP_FRAC * float(gf[-1] - gf[0])
     weights = 1.0 + 4.0 * Y[:, 8] * (1.0 - Y[:, 8])
 
-    # ---- 7: out-of-fold conditional survival, used to fit every post-hoc constant ----
     fold = make_folds(Y, train["n_acceptable"].values)
     Sf = np.zeros((len(Y), len(gf))); Sv = np.zeros((len(Y), len(gv)))
     Pdir = np.zeros((len(Y), 9))
@@ -934,7 +661,6 @@ def main():
         Pdir[va] = predict_direct(fit_direct(Xtr[tr], Y[tr], names), Xtr[va])
         log("fold %d/%d out-of-fold models done" % (k + 1, N_FOLDS))
 
-    # ---- 8: copula correlation between the two arms, from out-of-fold PIT values ----
     zf = norm_ppf(pit_values(Sf, gf, df, ramp))
     zv = norm_ppf(pit_values(Sv, gv, dv, ramp))
     rho = float(np.corrcoef(zf, zv)[0, 1])
@@ -943,7 +669,6 @@ def main():
         h = np.histogram(ndtr(z), bins=10, range=(0.0, 1.0))[0] / len(z)
         log("PIT calibration %-4s decile shares %s (uniform = 0.100)" % (nm, np.round(h, 3)))
 
-    # ---- 9: decode out-of-fold, then fit the two blend constants on train evidence only ----
     Pgen = decode_all(sess_tr, gf, Sf, gv, Sv, rho, ramp)
     log("out-of-fold generative decode      : %.4f" % official_score(Pgen, Y)["score"])
     log("out-of-fold direct nine-target     : %.4f" % official_score(Pdir, Y)["score"])
@@ -955,16 +680,15 @@ def main():
     log("blend weight on the direct member (fitted on out-of-fold): %.2f -> %.4f"
         % (w_dir, official_score(Poof, Y)["score"]))
 
-    # ---- 10: fragility ordering for the ats output ----
     T_tr = ats_posterior(sess_tr, gf, Sf, gv, Sv, rho, ramp)
-    phi, frag_ref = borda_fragility(T_tr)          # reference CDF built on train only
+    phi, frag_ref = borda_fragility(T_tr)
     plo, phi_hi = float(phi.min()), float(phi.max())
     log("fragility ordering statistic: Borda expected marginal rank, Somers' D = %.4f "
         "(against %.4f for the implied 4p(1-p))"
         % (somers_d(4.0 * Y[:, 8] * (1.0 - Y[:, 8]), phi),
            somers_d(4.0 * Y[:, 8] * (1.0 - Y[:, 8]), 4.0 * Poof[:, 8] * (1.0 - Poof[:, 8]))))
     Pfrag = Poof.copy()
-    for k in range(N_FOLDS):                        # cross-fitted, for an honest CV number
+    for k in range(N_FOLDS):
         tr = fold != k; va = fold == k
         iso_k = fit_fragility_map(phi[tr], Poof[tr, 8], weights[tr])
         Pfrag[va, 8] = apply_fragility_map(iso_k, phi[va], Poof[va, 8], plo, phi_hi)
@@ -977,9 +701,7 @@ def main():
     for j, t in enumerate(TARGETS):
         log("  per-target Brier %-8s %.5f" % (t, float(np.mean((Pfrag[:, j] - Y[:, j]) ** 2))))
 
-    # ---- strip-the-ML control (Guidebook 5.3): replace the LEARNED conditional distribution of
-    # the latent by the population marginal, keeping the decode and every participant's own blows.
-    # This is the "remove the model and see if it still works" test, run and reported in-script.
+    # control: replace the learned conditional distribution by the population marginal
     marg_f = np.array([(df >= g).mean() for g in gf])
     marg_v = np.array([(dv >= g).mean() for g in gv])
     P_noml = decode_all(sess_tr, gf, np.tile(marg_f, (len(Y), 1)),
@@ -991,7 +713,6 @@ def main():
            100.0 * (s_final["score"] - official_score(P_noml, Y)["score"])
            / max(s_final["score"] - 0.4705, 1e-9)))
 
-    # ---- evidence that the models learned rather than were told: top gain features ----
     gain = np.zeros(len(names) + 1)
     for m in fit_survival(Xtr[fold != 0], df[fold != 0], gf, names):
         gain += m.feature_importance("gain")
@@ -999,7 +720,6 @@ def main():
     log("top learned features for the FEV1-arm latent: %s"
         % [(names + ["level"])[i] for i in top])
 
-    # ---- refit on 100% of the training participants with the same fixed counts ----
     Mf = fit_survival(Xtr, df, gf, names)
     Mv = fit_survival(Xtr, dv, gv, names)
     Mdir = fit_direct(Xtr, Y, names)
@@ -1011,8 +731,8 @@ def main():
     Pdir_te = predict_direct(Mdir, Xte)
     Pte = np.clip((1.0 - w_dir) * Pgen_te + w_dir * Pdir_te, 0.0, 1.0)
     T_te = ats_posterior(sess_te, gf, Sf_te, gv, Sv_te, rho, ramp)
-    phi_te, _ = borda_fragility(T_te, reference=frag_ref)   # train-fitted reference, reused
-    iso_full = fit_fragility_map(phi, Poof[:, 8], weights)       # fitted on train out-of-fold only
+    phi_te, _ = borda_fragility(T_te, reference=frag_ref)
+    iso_full = fit_fragility_map(phi, Poof[:, 8], weights)
     Pte[:, 8] = apply_fragility_map(iso_full, phi_te, Pte[:, 8], plo, phi_hi)
 
     log("test prediction means %s" % dict(zip(TARGETS, np.round(Pte.mean(0), 4))))
