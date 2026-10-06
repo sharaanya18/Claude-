@@ -17,3 +17,5 @@ Consider using tensor.detach() first. (Triggered internally at /__w/pytorch/pyto
 [  382.5s]   reference: best constant (median) waveform scores 0.2469 -> model adds +0.3347
 [  388.7s]   full-data refit, seed 1/3
 [  405.0s]     full0 epoch   0/28  train normalised-L1 0.7235
+[  521.3s]     full0 epoch   7/28  train normalised-L1 0.4319
+[  636.5s]     full0 epoch  14/28  train normalised-L1 0.3489
