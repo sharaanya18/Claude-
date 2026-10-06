@@ -1,0 +1,222 @@
+
+==============================================================================
+== 1. FILE INTEGRITY AND SCHEMA
+==============================================================================
+train.csv rows             : 1093   cols ['sample_id', 'motion_file']
+test.csv rows              : 322   cols ['sample_id', 'motion_file']
+train_targets.csv rows     : 1093       cols ['sample_id', 'force_x', 'force_y', 'force_z']
+sample_submission.csv rows : 322       cols ['sample_id', 'force_x', 'force_y', 'force_z']
+train .npy on disk         : 1093
+test  .npy on disk         : 322
+description claims 1093 train / 322 test -> MATCH
+
+train ids unique           : True
+test  ids unique           : True
+targets cover train exactly: True
+sample_sub ids == test ids : True
+sample_sub id ORDER == test: True
+motion_file == '<split>/<id>.npy' for all train: True
+motion_file == '<split>/<id>.npy' for all test : True
+id format: all match 's_' + 16 hex: True
+NOTE: ids are opaque 16-hex digests. The description says person assignment
+      uses HMAC-SHA-256 under an evaluator-only key, so person identity is
+      NOT recoverable from ids by design. No attempt is made to do so.
+
+motion train array (1093, 256, 22, 3) float32   test (322, 256, 22, 3) float32
+targets array      (1093, 3, 256) float64
+all train shapes (256,22,3): True
+all test  shapes (256,22,3): True
+train motion finite        : True
+test  motion finite        : True
+targets finite             : True
+exact zeros in motion      : 16 of 18467328 (0.0001%)
+
+frame-0 pelvis centre (4 ASIS/PSIS mean), train: max|.| = 0.117626
+frame-0 pelvis centre, test : max|.| = 0.120865
+  -> if ~0, the origin is the 4-marker pelvis centroid at frame 0.
+   candidate origin ASIS mid : train max|.| = 0
+   candidate origin PSIS mid : train max|.| = 0.235252
+   candidate origin 4-marker : train max|.| = 0.117626
+   candidate origin all-22   : train max|.| = 0.523006
+
+==============================================================================
+== 2. MARKER COORDINATE STATISTICS (train only)
+==============================================================================
+marker              x mean     x sd    y mean     y sd    z mean     z sd   |vel| m/fr
+R.ASIS              1.0266   0.6739    0.0035   0.0204    0.1237   0.0383      0.00813
+L.ASIS              1.0259   0.6747    0.0051   0.0202   -0.1240   0.0360      0.00814
+R.PSIS              0.8416   0.6744    0.0373   0.0274    0.0413   0.0356      0.00812
+L.PSIS              0.8408   0.6746    0.0381   0.0276   -0.0408   0.0358      0.00813
+L.Iliac.Crest       0.9408   0.6744    0.0720   0.0256   -0.1650   0.0359      0.00814
+R.Iliac.Crest       0.9419   0.6737    0.0696   0.0252    0.1644   0.0377      0.00813
+R.GTR               0.9477   0.6732   -0.0882   0.0246    0.1853   0.0363      0.00813
+R.Knee              0.9887   0.6832   -0.4407   0.0424    0.1334   0.0364      0.00819
+R.HF                0.9720   0.6848   -0.4911   0.0471    0.1333   0.0363      0.00817
+R.TT                1.0252   0.6858   -0.5102   0.0503    0.0865   0.0376      0.00820
+R.Ankle             0.8900   0.7039   -0.7951   0.0861    0.0860   0.0348      0.00868
+R.Heel              0.8508   0.7040   -0.8003   0.0963    0.0370   0.0344      0.00894
+R.MT1               1.0166   0.7106   -0.8432   0.0755    0.0477   0.0392      0.00853
+R.MT5               0.9778   0.7107   -0.8502   0.0768    0.1101   0.0371      0.00855
+L.GTR               0.9453   0.6751   -0.0853   0.0232   -0.1861   0.0380      0.00812
+L.Knee              0.9871   0.6863   -0.4416   0.0420   -0.1342   0.0356      0.00810
+L.HF                0.9708   0.6884   -0.4935   0.0465   -0.1344   0.0355      0.00808
+L.TT                1.0238   0.6893   -0.5111   0.0485   -0.0920   0.0376      0.00811
+L.Ankle             0.8956   0.7096   -0.7960   0.0854   -0.0888   0.0343      0.00858
+L.Heel              0.8546   0.7096   -0.8038   0.0973   -0.0426   0.0347      0.00885
+L.MT1               1.0216   0.7168   -0.8424   0.0757   -0.0463   0.0391      0.00848
+L.MT5               0.9871   0.7179   -0.8509   0.0770   -0.1102   0.0377      0.00849
+
+global coord range  x [-0.618,3.688] y [-1.038,0.184] z [-0.405,0.435]
+Interpreting the lab axes from the motion itself:
+  axis x: net body displacement over the 256 frames mean +2.0481  sd 0.5463  |mean| 2.0481  frac>0 1.000
+  axis y: net body displacement over the 256 frames mean +0.0049  sd 0.0119  |mean| 0.0102  frac>0 0.666
+  axis z: net body displacement over the 256 frames mean +0.0014  sd 0.0434  |mean| 0.0328  frac>0 0.504
+  (largest |net displacement| = direction of travel; the vertical axis should
+   show near-zero net displacement but marker heights spanning ~1 leg length.)
+  axis x: mean (R.Iliac.Crest - R.Heel) = +0.0912  -> 
+  axis y: mean (R.Iliac.Crest - R.Heel) = +0.8699  -> VERTICAL candidate
+  axis z: mean (R.Iliac.Crest - R.Heel) = +0.1274  -> 
+
+==============================================================================
+== 3. TARGET (FORCE) WAVEFORM AUDIT
+==============================================================================
+axis          mean       sd       min       max   mean|y|  sum|y| mean  sum|y| min
+force_x     0.0025   0.1007   -0.5885    0.6916    0.0717       18.364       5.210
+force_y     0.8138   0.4222   -1.0100    3.6532    0.8181      209.438      38.904
+force_z     0.0018   0.0467   -0.3502    0.3449    0.0371        9.502       1.843
+
+any trial-axis with sum|y| == 0 (exact-zero axis)? 0 of 3279
+smallest sum|y| per axis: force_x=5.2101  force_y=38.9044  force_z=1.8427
+
+METRIC CONSEQUENCE: the denominator sum|y| differs between axes by
+  ratio y/x = 11.40x, y/z = 22.04x.
+  Each axis is normalised by its OWN denominator and then weighted equally,
+  so an unweighted L1/L2 loss would be dominated by force_y. A metric-aligned
+  loss must divide each trial-axis residual by that trial-axis sum|y|.
+
+per-axis waveform shape, mean over trials (every 16th frame):
+  force_x: -0.006 -0.001 -0.007 +0.011 +0.005 +0.011 -0.039 -0.019 +0.008 -0.017 +0.031 -0.011 +0.001 +0.007 +0.020 +0.030
+  force_y: +0.856 +0.840 +0.778 +0.725 +0.707 +0.784 +0.827 +0.877 +0.886 +0.944 +0.964 +0.963 +0.916 +0.841 +0.721 +0.581
+  force_z: +0.001 +0.006 +0.012 +0.015 +0.019 +0.021 +0.007 +0.004 -0.003 -0.011 -0.012 -0.011 -0.007 -0.006 -0.003 -0.003
+
+per-axis sd across trials at each frame (every 16th):
+  force_x: 0.107 0.108 0.108 0.100 0.099 0.105 0.096 0.094 0.099 0.101 0.105 0.102 0.106 0.098 0.088 0.075
+  force_y: 0.462 0.489 0.531 0.524 0.519 0.519 0.413 0.374 0.304 0.218 0.272 0.240 0.228 0.284 0.388 0.457
+  force_z: 0.051 0.055 0.052 0.046 0.045 0.045 0.045 0.048 0.044 0.046 0.052 0.046 0.044 0.042 0.038 0.035
+
+force_y: frac of all samples > 0 = 0.8943; mean = 0.8138 BW; 99th pct = 2.036
+force_y per-trial mean: min -0.256 max 1.499 mean 0.814
+  -> a 256-frame window of overground walking with 5 summed plates should
+     average near +1 BW vertically whenever the walker is fully on the plates;
+     lower means part of the window has the walker off the instrumented area.
+frac of trials whose force_y is < 0.05 BW for >25% of frames: 0.1610
+frac of frames with |force_y| < 0.02 BW (effectively unloaded): 0.0984
+trials with ANY unloaded frame: 0.6075; trials entirely loaded: 0.3925
+force_x: total variation / sum|y| = 0.1160 (median) -> smooth
+force_y: total variation / sum|y| = 0.0284 (median) -> smooth
+force_z: total variation / sum|y| = 0.0913 (median) -> smooth
+
+==============================================================================
+== 4. DUPLICATES, NEAR-DUPLICATES, OUTLIERS
+==============================================================================
+exact duplicate motion arrays in train: 0
+exact duplicate motion arrays in test : 0
+train/test exact array overlap        : 0  (must be 0: no trial is reused across the split)
+exact duplicate target waveforms      : 0
+
+near-duplicate descriptor cosine: max off-diagonal 0.999985, pairs > 0.9999: 253, > 0.999: 24244
+motion Frobenius norm: mean 96.09 sd 21.20 min 55.36 max 149.47
+  percentiles 0.5/1/50/99/99.5: 58.10 58.46 97.06 140.86 143.14
+  trials beyond 4 sd of motion norm: 0
+peak force_y per trial: mean 1.540 sd 0.400 min 0.308 max 3.653
+  trials with peak force_y > 2.0 BW (implausible for walking): 86
+  trials with peak force_y < 0.5 BW (barely on the plates): 1
+
+==============================================================================
+== 5. SUBJECT STRUCTURE FROM ANTHROPOMETRY
+==============================================================================
+Segment lengths are near-constant within a person and differ between people,
+so they are the legitimate route to approximate person groups. They are a
+function of PUBLIC TRAIN INPUTS only -- no ids, no order, no provenance.
+
+segment            mean m     sd m     cv%  within-trial sd
+pelvis_width       0.2491   0.0220    8.82          0.00147
+pelvis_depth_R     0.2074   0.0200    9.64          0.00228
+pelvis_depth_L     0.2077   0.0193    9.27          0.00213
+crest_width        0.3310   0.0266    8.05          0.00172
+gtr_width          0.3755   0.0277    7.39          0.00298
+thigh_R            0.3728   0.0351    9.40          0.00701
+thigh_L            0.3764   0.0351    9.33          0.00691
+shank_R            0.4012   0.0357    8.90          0.00555
+shank_L            0.3989   0.0362    9.09          0.00523
+knee_HF_R          0.0575   0.0085   14.78          0.00277
+knee_HF_L          0.0589   0.0084   14.24          0.00262
+TT_ankle_R         0.3423   0.0301    8.79          0.00262
+TT_ankle_L         0.3385   0.0310    9.14          0.00238
+foot_R             0.1916   0.0145    7.59          0.00433
+foot_L             0.1908   0.0146    7.66          0.00400
+foot5_R            0.1699   0.0136    8.03          0.00154
+foot5_L            0.1713   0.0145    8.44          0.00172
+forefoot_R         0.0759   0.0052    6.80          0.00354
+forefoot_L         0.0752   0.0065    8.61          0.00350
+asis_gtr_R         0.1392   0.0155   11.12          0.00390
+asis_gtr_L         0.1389   0.0162   11.69          0.00342
+
+A segment whose within-trial sd is far below its across-trial sd is a
+rigid body dimension -> good person fingerprint. High within-trial sd means
+the marker pair spans a joint that actually moves (not usable as a length).
+
+standardised anthropometric space: nearest-neighbour distance
+  mean 0.1592 median 0.1400 p90 0.2598 max 0.5196
+  distance to 1st/10th/30th/40th/60th NN (median over trials): 0.140 0.404 1.107 2.885 3.093
+  If ~34 trials per person (1093/32), a jump in this curve around k~30-40
+  marks the edge of a person's own cluster.
+  k=16  cluster sizes: n=16 min=8 max=233 median=39  (ideal ~68)
+  k=24  cluster sizes: n=24 min=8 max=93 median=38  (ideal ~46)
+  k=32  cluster sizes: n=32 min=8 max=56 median=35  (ideal ~34)
+  k=40  cluster sizes: n=40 min=5 max=56 median=28  (ideal ~27)
+  k=48  cluster sizes: n=48 min=3 max=46 median=21  (ideal ~23)
+  k=64  cluster sizes: n=64 min=1 max=45 median=16  (ideal ~17)
+
+k=32 within-cluster mean NN distance 0.1622
+k=32: mean WITHIN-cluster distance 0.6919, mean BETWEEN-cluster distance 6.2311, ratio 9.01x
+
+==============================================================================
+== 6. TEMPORAL / GAIT STRUCTURE
+==============================================================================
+Window is 256 frames ~ 1.7 s, so the source marker rate is ~150 Hz.
+  256 / 1.7 s = 150.6 Hz
+inferred vertical axis index = 1 ('y'), travel axis index = 0 ('x')
+  (description: force_y is vertical, force_x forward, force_z lateral;
+   marker axes need not use the same ordering -- verified above from motion.)
+R.Heel vertical: per-trial range mean 0.2123 m
+R.Heel speed: mean 0.00894 m/frame, max 0.04055
+R.Heel low-point count per trial (proxy for strides in window): mean 2.58 median 3 distribution {1: 85, 2: 454, 3: 409, 4: 128, 5: 15, 6: 2}
+  -> ~1.7 s at normal cadence (~0.55 s/step) holds ~3 steps / ~1.5 cycles;
+     the description warns some trials lack a complete gait cycle.
+
+fraction of trials loaded at frame 0 / 128 / 255: 0.891 / 0.988 / 0.610
+first loaded frame: median 0  p90 2
+last loaded frame : median 255   p10 221
+
+==============================================================================
+== 7. PHYSICS LINK: IS GRF PREDICTABLE FROM COM ACCELERATION?
+==============================================================================
+Newton: sum(F_ext) = m*a_com, and GRF/(m*g) = a_com/g + gravity term.
+With markers only on the lower body we can only approximate the COM, but the
+correlation tells us how much of the force is directly kinematic.
+  corr(force_x, pelvis_acc_x) = +0.5182
+  corr(force_x, pelvis_acc_y) = +0.1971
+  corr(force_x, pelvis_acc_z) = -0.0187
+  -> force_x best matched by pelvis_acc_x (+0.5182)
+  corr(force_y, pelvis_acc_x) = +0.0468
+  corr(force_y, pelvis_acc_y) = +0.3111
+  corr(force_y, pelvis_acc_z) = +0.0567
+  -> force_y best matched by pelvis_acc_y (+0.3111)
+  corr(force_z, pelvis_acc_x) = -0.0097
+  corr(force_z, pelvis_acc_y) = +0.0015
+  corr(force_z, pelvis_acc_z) = +0.1752
+  -> force_z best matched by pelvis_acc_z (+0.1752)
+
+Naive Newtonian vertical estimate (pelvis acc / g + 1) scored with the
+official metric on force_y alone: 0.6161

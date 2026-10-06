@@ -1,0 +1,61 @@
+loading ...
+N=1093  people=32  folds=[214, 213, 213, 220, 233]
+people per fold=[6, 6, 6, 7, 7]
+
+building features ...
+frame features (1093, 187, 256)  anthro features (1093, 27)  [22s]
+cached working/feats.npz  [32s]
+
+==============================================================================================================
+BASELINES, cross-person 5-fold, exact official metric
+==============================================================================================================
+baseline                                  TOTAL        x       y       z   per-fold
+B0 all-zero submission                   0.0000   x 0.0000  y 0.0000  z 0.0000   folds [0.000 0.000 0.000 0.000 0.000]  sd 0.0000 
+B1 mean waveform (per-axis)              0.2269   x 0.0236  y 0.6121  z 0.0451   folds [0.238 0.244 0.232 0.211 0.211]  sd 0.0137 
+B1b median waveform (L1-optimal)         0.2417   x 0.0523  y 0.6187  z 0.0542   folds [0.254 0.261 0.250 0.225 0.221]  sd 0.0161 
+B2* ORACLE-amplitude median waveform     0.2187   x 0.0056  y 0.6289  z 0.0216   folds [0.228 0.234 0.226 0.202 0.206]  sd 0.0128 <- uses truth, ceiling only
+B3 Newtonian COM accel (sg15), untrained 0.2506   x 0.0000  y 0.6604  z 0.0915   folds [0.257 0.269 0.277 0.240 0.214]  sd 0.0227 
+B3 Newtonian COM accel (sg31), untrained 0.2805   x 0.0011  y 0.6541  z 0.1864   folds [0.279 0.313 0.309 0.265 0.240]  sd 0.0273 
+B3 Newtonian COM accel (sg51), untrained 0.2980   x 0.0008  y 0.6386  z 0.2545   folds [0.298 0.334 0.324 0.280 0.257]  sd 0.0282 
+B4 ridge(anthro+gait scalars) lam=1      0.2683   x 0.1169  y 0.6117  z 0.0763   folds [0.287 0.295 0.268 0.238 0.256]  sd 0.0205 
+B4 ridge(anthro+gait scalars) lam=10     0.2577   x 0.0903  y 0.6143  z 0.0686   folds [0.276 0.279 0.257 0.234 0.244]  sd 0.0177 
+B4 ridge(anthro+gait scalars) lam=100    0.2396   x 0.0554  y 0.6030  z 0.0605   folds [0.259 0.248 0.236 0.221 0.235]  sd 0.0129 
+B5 per-frame ridge(kinematics) lam=100   0.4441   x 0.3493  y 0.5856  z 0.3975   folds [0.454 0.494 0.442 0.421 0.413]  sd 0.0287 
+B5 per-frame ridge(kinematics) lam=1000  0.4699   x 0.3852  y 0.6095  z 0.4148   folds [0.487 0.521 0.454 0.453 0.437]  sd 0.0300 
+B5 per-frame ridge(kinematics) lam=10000 0.4859   x 0.4142  y 0.6121  z 0.4314   folds [0.496 0.549 0.478 0.460 0.452]  sd 0.0345 
+B6 kNN retrieval (K=1) on scalars        0.2413   x 0.0926  y 0.5377  z 0.0935   folds [0.259 0.252 0.258 0.203 0.236]  sd 0.0209 
+B6 kNN retrieval (K=5) on scalars        0.2733   x 0.1082  y 0.6143  z 0.0974   folds [0.290 0.299 0.292 0.241 0.249]  sd 0.0242 
+B6 kNN retrieval (K=15) on scalars       0.2743   x 0.1057  y 0.6341  z 0.0831   folds [0.291 0.290 0.297 0.247 0.250]  sd 0.0217 
+B6 kNN retrieval (K=40) on scalars       0.2685   x 0.0974  y 0.6461  z 0.0621   folds [0.279 0.290 0.281 0.250 0.246]  sd 0.0180 
+
+--------------------------------------------------------------------------------------------------------------
+B7 TARGET BASIS: reconstruction ceiling (basis fitted on TRAIN people only)
+--------------------------------------------------------------------------------------------------------------
+  PCA    4 comps  ORACLE-projection score 0.5441  x 0.3404 y 0.7945 z 0.4975
+  PCA    8 comps  ORACLE-projection score 0.6660  x 0.5059 y 0.8657 z 0.6265
+  PCA   16 comps  ORACLE-projection score 0.8078  x 0.7275 y 0.9337 z 0.7622
+  PCA   24 comps  ORACLE-projection score 0.8756  x 0.8517 y 0.9552 z 0.8198
+  PCA   32 comps  ORACLE-projection score 0.9096  x 0.8934 y 0.9671 z 0.8683
+  PCA   48 comps  ORACLE-projection score 0.9377  x 0.9192 y 0.9786 z 0.9153
+  PCA   64 comps  ORACLE-projection score 0.9517  x 0.9386 y 0.9828 z 0.9336
+  PCA   96 comps  ORACLE-projection score 0.9687  x 0.9651 y 0.9866 z 0.9545
+  PCA  128 comps  ORACLE-projection score 0.9778  x 0.9778 y 0.9896 z 0.9661
+  DCT    8 comps  ORACLE-projection score 0.6133  x 0.4311 y 0.8395 z 0.5693
+  DCT   16 comps  ORACLE-projection score 0.8098  x 0.7295 y 0.9342 z 0.7657
+  DCT   24 comps  ORACLE-projection score 0.8776  x 0.8527 y 0.9575 z 0.8226
+  DCT   32 comps  ORACLE-projection score 0.9146  x 0.8982 y 0.9690 z 0.8767
+  DCT   48 comps  ORACLE-projection score 0.9445  x 0.9294 y 0.9807 z 0.9234
+  DCT   64 comps  ORACLE-projection score 0.9579  x 0.9444 y 0.9854 z 0.9441
+  DCT   96 comps  ORACLE-projection score 0.9741  x 0.9694 y 0.9896 z 0.9633
+  DCT  128 comps  ORACLE-projection score 0.9824  x 0.9821 y 0.9918 z 0.9733
+  -> the number of components where the ORACLE projection stops gaining is
+     the most compression the metric tolerates. Below that, a basis target
+     caps the achievable score (oversmoothing kills peaks the metric counts).
+
+--------------------------------------------------------------------------------------------------------------
+INFORMATION CEILING DIAGNOSTICS
+--------------------------------------------------------------------------------------------------------------
+C1* ORACLE same-person median waveform   0.2849   x 0.0946  y 0.6378  z 0.1221   folds [0.279 0.312 0.314 0.275 0.248]  sd 0.0250 <- unreachable: person unknown at test
+C2 global median (in-sample)             0.2449   x 0.0551  y 0.6217  z 0.0580   folds [0.253 0.266 0.260 0.227 0.221]  sd 0.0182 
+
+[221s] done

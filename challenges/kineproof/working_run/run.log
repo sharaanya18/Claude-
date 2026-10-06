@@ -1,0 +1,19 @@
+[    1.1s] public_dir=dataset_public  submission_out=working_run/submission.csv  device=cpu
+[    1.2s] train trials 1093  test trials 322
+[    2.6s] loaded motion (1093, 256, 22, 3) / (322, 256, 22, 3) and targets (1093, 3, 256)
+[   51.0s] features: frame 187 channels, trial scalars 27
+[   55.7s] derived 32 person groups, sizes min 8 max 56 median 35
+[   55.7s] validation holds out 7 whole persons (311 trials); training on 782
+/home/user/Claude-/challenges/kineproof/solution.py:510: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /__w/pytorch/pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:820.)
+  tot += float(loss) * len(b)
+[   70.2s]     holdout epoch   0/28  train normalised-L1 0.7420
+[  151.5s]     holdout epoch   7/28  train normalised-L1 0.4289
+[  230.1s]     holdout epoch  14/28  train normalised-L1 0.3475
+[  310.5s]     holdout epoch  21/28  train normalised-L1 0.2933
+[  381.7s]     holdout epoch  27/28  train normalised-L1 0.2740
+[  382.5s] HELD-OUT-PERSON validation, official metric: TOTAL 0.5816  x 0.5085  y 0.7365  z 0.4997
+[  382.5s]   per-held-out-person scores: 0.379 0.496 0.546 0.585 0.657 0.659 0.687
+[  382.5s]   reference: best constant (median) waveform scores 0.2469 -> model adds +0.3347
+[  388.7s]   full-data refit, seed 1/3
+[  405.0s]     full0 epoch   0/28  train normalised-L1 0.7235

@@ -1,0 +1,88 @@
+==============================================================================
+PERSON-GROUP DERIVATION AND VALIDATION (train only)
+==============================================================================
+trials 1093   segments 25   description says 32 people
+
+k=32 cluster sizes: min 8 max 56 median 35 mean 34.2  (1093/32 = 34.2)
+  sizes sorted: [8, 22, 22, 26, 28, 28, 28, 29, 29, 31, 31, 32, 32, 32, 33, 35, 36, 37, 37, 37, 37, 37, 38, 38, 39, 40, 40, 41, 43, 45, 46, 56]
+
+------------------------------------------------------------------------------
+TEST 1  within-cluster segment sd vs the measurement noise floor
+------------------------------------------------------------------------------
+If a cluster is one person, the spread of its trials' segment lengths should
+be close to the within-trial measurement sd (marker jitter / soft tissue),
+not to the population spread.
+
+segment           pop sd mm  within-clu  within-trial  ratio pop/clu
+pelvis_width          21.98        0.68          1.47          32.19
+pelvis_depth_R        20.00        0.80          2.28          25.05
+pelvis_depth_L        19.26        0.86          2.13          22.30
+crest_width           26.63        1.03          1.72          25.77
+gtr_width             27.74        1.18          2.98          23.46
+thigh_R               35.05        1.93          7.01          18.20
+thigh_L               35.12        1.78          6.91          19.68
+shank_R               35.71        0.62          5.55          57.17
+shank_L               36.24        0.60          5.23          59.94
+TT_ankle_R            30.09        0.78          2.62          38.35
+TT_ankle_L            30.95        0.75          2.38          41.12
+foot_R                14.54        1.36          4.33          10.68
+foot_L                14.61        1.31          4.00          11.18
+foot5_R               13.65        0.61          1.54          22.47
+foot5_L               14.45        0.78          1.72          18.46
+forefoot_R             5.16        1.90          3.54           2.72
+forefoot_L             6.47        1.86          3.50           3.47
+asis_gtr_R            15.47        1.41          3.90          10.99
+asis_gtr_L            16.24        1.32          3.42          12.26
+knee_HF_R              8.50        0.53          2.77          16.01
+knee_HF_L              8.39        0.53          2.62          15.96
+asis_knee_R           40.84        5.14         14.27           7.95
+asis_knee_L           39.89        5.37         14.12           7.42
+psis_crest_R          18.44        0.85          3.04          21.68
+psis_crest_L          15.79        0.87          3.09          18.12
+MEAN                  22.05        1.40          4.25          15.80
+
+Interpretation: within-cluster spread 1.40 mm vs population 22.05 mm
+  -> clusters are 15.8x tighter than the population.
+  within-cluster (1.40 mm) vs within-trial noise (4.25 mm): same order -> clusters behave like single subjects
+
+------------------------------------------------------------------------------
+TEST 2  how sharply does k=32 stand out?
+------------------------------------------------------------------------------
+   k    n   min   max   within   between   ratio  singletons
+   8    8     8   519    2.350     7.727    3.29           0
+  16   16     8   233    1.423     7.406    5.20           0
+  24   24     8   121    1.105     6.981    6.32           0
+  28   28     8    93    0.897     6.890    7.68           0
+  30   30     8    83    0.813     6.842    8.42           0
+  32   32     8    56    0.746     6.804    9.12           0
+  34   34     8    56    0.697     6.743    9.68           0
+  36   36     8    56    0.670     6.744   10.07           0
+  40   40     8    56    0.632     6.752   10.68           0
+  48   48     3    46    0.542     6.714   12.38           0
+  64   64     2    45    0.447     6.713   15.01           0
+  96   96     1    45    0.370     6.691   18.10           3
+
+A ratio that stops improving past k=32 means extra clusters only split
+real people; a ratio still climbing means 32 clusters still merge people.
+
+------------------------------------------------------------------------------
+TEST 3  merge-height profile of the dendrogram
+------------------------------------------------------------------------------
+merge heights near the 32-cluster cut (index from the top):
+  8.272 7.213 6.916 5.831 5.586 5.582 5.474 5.292 5.217 5.196 5.061 4.713 4.473 4.472 4.286 4.102 3.918 3.899 3.883 3.813 3.738 3.647 3.518 3.445 3.437 3.285 3.176 2.884 2.738 2.712 2.667 1.540 1.522 1.451 1.440 1.281 1.274 1.272 1.232 1.194 1.159 1.136 1.134 1.115 1.111
+
+height just below the k=32 cut: 1.5217
+height AT the k=32 cut          : 1.5400
+height just above (k=31)        : 2.6671
+relative jump at the cut        : 1.732x
+
+------------------------------------------------------------------------------
+TEST 4  leakage gauge: nearest-neighbour distance, random vs grouped folds
+------------------------------------------------------------------------------
+  random 5-fold            mean val->train NN distance = 0.1954
+  person-grouped 5-fold    mean val->train NN distance = 3.3175
+  A much larger distance under grouped folds confirms that random folds
+  place near-replicate trials of the same walker on both sides.
+
+  grouped fold sizes (trials): [214, 213, 213, 220, 233]
+  grouped fold sizes (people) : [6, 6, 6, 7, 7]
