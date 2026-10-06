@@ -74,13 +74,6 @@ def load_chart(path):
     return np.concatenate([ink, cnt, mask], 0).astype(np.float32), W
 
 
-def meta_vec(row):
-    """Chart-level scalars from the row's own columns (n_points, aggunit, aggfn)."""
-    v = np.zeros(1 + len(AGGUNITS) + len(AGGFNS) + 1, dtype=np.float32)
-    ppp = row.n_points / max(1, (0))  # placeholder replaced below
-    return v
-
-
 def build_meta(df, widths):
     out = np.zeros((len(df), 2 + len(AGGUNITS) + len(AGGFNS)), dtype=np.float32)
     for i, (r, w) in enumerate(zip(df.itertuples(), widths)):
@@ -184,10 +177,6 @@ def augment_batch(X, widths, flips, vflips):
         if vf:
             X[i, :NB] = X[i, :NB][::-1]
     return X
-
-
-def to_flip_marks(ms, w, fl):
-    return ms
 
 
 def loss_fn(out, heat, brk, bw, valid):
@@ -302,5 +291,135 @@ def run_cv(df, X, Wd, M, marks, folds, epochs=EPOCHS, **kw):
     return oof_h, oof_b
 
 
+# ----------------------------- metric (exact re-implementation of the grader, used for OOF threshold choice) -----------------------------
+TOL = 5.0
+
+
+def chart_score(pred, truth):
+    """Greedy closest-pair matching within 5 px; credit = 1 - RPS; chart = 2*sum(credit)/(n_pred + n_true)."""
+    n_p, n_t = len(pred), len(truth)
+    if n_p == 0 and n_t == 0:
+        return 1.0
+    pairs = sorted((abs(a["x"] - b["x"]), i, j) for i, a in enumerate(pred) for j, b in enumerate(truth)
+                   if abs(a["x"] - b["x"]) <= TOL)
+    ui, uj, credit = set(), set(), 0.0
+    for d, i, j in pairs:
+        if i in ui or j in uj:
+            continue
+        ui.add(i); uj.add(j)
+        P = np.cumsum(pred[i]["p"])[:2]; R = np.cumsum(truth[j]["p"])[:2]
+        credit += 1.0 - float(((P - R) ** 2).sum()) / 2.0
+    return 2.0 * credit / (n_p + n_t)
+
+
+MIN_CELL = 30   # cells smaller than this are too noisy to steer the decision threshold
+
+
+def cv_skill(cells, truth, preds):
+    """Mean over (dataset, fieldtype) cells of skill above the empty submission, as in the challenge score."""
+    ch = np.array([chart_score(p, t) for p, t in zip(preds, truth)])
+    emp = np.array([chart_score([], t) for t in truth])
+    out = []
+    for c in np.unique(cells):
+        m = cells == c
+        if m.sum() < MIN_CELL or emp[m].mean() >= 1.0:
+            continue
+        out.append((ch[m].mean() - emp[m].mean()) / (1 - emp[m].mean()))
+    return float(np.mean(out))
+
+
+# ----------------------------- bracket calibration -----------------------------
+def calibrate_p(p, temp, shrink, prior):
+    """Temperature on the log-probabilities, then shrink toward the train bracket mix."""
+    q = np.asarray(p, dtype=np.float64) ** (1.0 / temp)
+    q = q / q.sum()
+    q = (1 - shrink) * q + shrink * prior
+    return q / q.sum()
+
+
+def apply_calib(marks, temp, shrink, prior):
+    return [{"x": m["x"], "p": [float(v) for v in calibrate_p(m["p"], temp, shrink, prior)]} for m in marks]
+
+
+def validate_submission(sub, sample):
+    assert list(sub.columns) == list(sample.columns), f"columns {list(sub.columns)} != {list(sample.columns)}"
+    assert len(sub) == len(sample), f"rows {len(sub)} != {len(sample)}"
+    assert sub["id"].astype(str).tolist() == sample["id"].astype(str).tolist(), "id mismatch/order"
+    assert not sub["id"].duplicated().any(), "duplicate ids"
+    for cell in sub["marks"]:
+        ms = json.loads(cell)
+        assert isinstance(ms, list)
+        for m in ms:
+            assert set(m.keys()) == {"x", "p"} and np.isfinite(m["x"]) and len(m["p"]) == 3
+            assert min(m["p"]) >= 0 and abs(sum(m["p"]) - 1.0) < 1e-6, m
+
+
+def main():
+    seed_everything()
+    tr = pd.read_csv(PUBLIC_DIR / "train.csv").merge(pd.read_csv(PUBLIC_DIR / "folds.csv"), on="id")
+    te = pd.read_csv(PUBLIC_DIR / "test.csv")
+    sample = pd.read_csv(PUBLIC_DIR / "sample_submission.csv", keep_default_na=False)
+    X, Wd, M = load_split(tr, PUBLIC_DIR / "train_images")
+    Xt, Wt, Mt = load_split(te, PUBLIC_DIR / "test_images")
+    log(f"features built: train {X.shape} test {Xt.shape}")
+    marks = [parse_marks(s) for s in tr["marks"]]
+    truth = [json.loads(s) for s in tr["marks"]]
+    cells = (tr["dataset_name"] + "|" + tr["fieldtype"]).values
+    folds = tr["fold"].values
+    prior = np.zeros(3)
+    for ms in marks:
+        for _, b in ms:
+            prior[b] += 1
+    prior /= prior.sum()
+
+    # 1) cross-cell CV: every fold model never sees the held-out dataset x fieldtype cells; test = mean of fold models
+    oof_h = [None] * len(tr); oof_b = [None] * len(tr)
+    test_h = [None] * len(te); test_b = [None] * len(te)
+    for f in range(N_FOLDS):
+        te_idx = np.where(folds == f)[0]; tr_idx = np.where(folds != f)[0]
+        log(f"fold {f}: train {len(tr_idx)} held-out {len(te_idx)}")
+        net = _train_fold(X, Wd, M, marks, tr_idx, epochs=EPOCHS, seed=SEED + f)
+        hh, bb = predict_net(net, X, Wd, M, te_idx)
+        for k, i in enumerate(te_idx):
+            oof_h[i] = hh[k]; oof_b[i] = bb[k]
+        th, tb = predict_net(net, Xt, Wt, Mt, np.arange(len(te)))   # each test chart is scored on its own
+        for i in range(len(te)):
+            if test_h[i] is None:
+                test_h[i] = th[i] / N_FOLDS; test_b[i] = tb[i] / N_FOLDS
+            else:
+                test_h[i] = test_h[i] + th[i] / N_FOLDS; test_b[i] = test_b[i] + tb[i] / N_FOLDS
+
+    # 2) decision threshold and bracket calibration, chosen on out-of-fold predictions only (two numbers + one temperature)
+    grid = [round(t, 2) for t in np.arange(0.30, 0.86, 0.05)]
+    skills = []
+    for thr in grid:
+        skills.append(cv_skill(cells, truth, decode_all(oof_h, oof_b, thr)))
+    sm = np.convolve(np.pad(skills, 1, mode="edge"), np.ones(3) / 3, mode="valid")   # prefer a plateau over a spike
+    thr = grid[int(np.argmax(sm))]
+    log("threshold grid " + " ".join(f"{g}:{s:.3f}" for g, s in zip(grid, skills)) + f" -> {thr}")
+    base = decode_all(oof_h, oof_b, thr)
+    best = (cv_skill(cells, truth, base), 1.0, 0.0)
+    for temp in (0.8, 1.0, 1.25, 1.5):
+        for shrink in (0.0, 0.1, 0.2):
+            sc = cv_skill(cells, truth, [apply_calib(m, temp, shrink, prior) for m in base])
+            if sc > best[0] + 1e-4:
+                best = (sc, temp, shrink)
+    _, temp, shrink = best
+    log(f"OOF skill (mean over cells >= {MIN_CELL} charts) at thr {thr}: {best[0]:.4f}  bracket temp {temp} shrink {shrink}")
+
+    # 3) test predictions
+    pred = [apply_calib(m, temp, shrink, prior) for m in decode_all(test_h, test_b, thr)]
+    sub = sample.copy()
+    sub["marks"] = [json.dumps(p) for p in pred]
+    sub["id"] = te["id"].values
+    validate_submission(sub, sample)
+    SUBMISSION_OUT.parent.mkdir(parents=True, exist_ok=True)
+    tmp = SUBMISSION_OUT.with_suffix(".tmp")
+    sub.to_csv(tmp, index=False)
+    os.replace(tmp, SUBMISSION_OUT)
+    n_marks = sum(len(p) for p in pred)
+    log(f"wrote {SUBMISSION_OUT} rows={len(sub)} marks={n_marks} empty charts={sum(len(p) == 0 for p in pred)}")
+
+
 if __name__ == "__main__":
-    log("see experiment drivers; main() assembled after experiments")
+    main()

@@ -24,3 +24,17 @@ def evaluate(tr, truth, preds, mask=None):
     idx = np.arange(len(tr)) if mask is None else np.where(mask)[0]
     cs, mean = Mt.cell_scores([truth[i] for i in idx], [preds[i] for i in idx], tr.cell.values[idx])
     return cs, mean
+
+PROXY = ['pas|categorical','lims|categorical','micro|datetime','lims|datetime','antibiotics|datetime','pas|uniqueidentifier','micro|uniqueidentifier','antibiotics|uniqueidentifier']
+# test-cell look-alikes (same fieldtype or same source system, held out in CV); 4 groups mirror the 4 hidden cells
+GROUPS = {'micro/pas categorical':['pas|categorical','lims|categorical'], 'datetime':['micro|datetime','lims|datetime','antibiotics|datetime'],
+          'uniqueid':['pas|uniqueidentifier','micro|uniqueidentifier','antibiotics|uniqueidentifier']}
+
+def summary(tr, truth, preds):
+    ch = np.array([Mt.chart_score(p, t) for p, t in zip(preds, truth)])
+    emp = np.array([Mt.chart_score([], t) for t in truth])
+    out = {}
+    for c in PROXY:
+        m = (tr.cell.values == c)
+        b = emp[m].mean(); out[c] = (ch[m].mean() - b) / (1 - b)
+    return out, float(np.mean(list(out.values())))

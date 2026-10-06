@@ -76,7 +76,7 @@ def write_meta(ch, script, args, user, dataset=None, sets=(), name=None):
     wrapper.write_text(pre + find + cmd + post)
     (kdir / "kernel-metadata.json").write_text(json.dumps({
         "id": f"{user}/{kn}", "title": kn, "code_file": "main.py", "language": "python", "kernel_type": "script",
-        "is_private": True, "enable_gpu": True, "enable_internet": True,
+        "is_private": True, "enable_gpu": os.environ.get("KAGGLE_ENABLE_GPU", "1") == "1", "enable_internet": True,
         "dataset_sources": [ds_full], "competition_sources": [], "kernel_sources": []}, indent=2))
     return kdir, f"{user}/{kn}"
 
