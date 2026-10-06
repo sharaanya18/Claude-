@@ -42,3 +42,24 @@
   (`f_x → s²f_x`, `f_y → s²(f_y−1)+1`); a second model family for assumption
   diversity; capacity ladder; explicit auxiliary contact-probability head; more seeds.
 - Train-vs-test distribution comparison deliberately NOT performed (compliance).
+
+## Challenge-page facts (seen 2026-10-06, not in the pasted description)
+- **COMPUTE: CPU** — confirms the hardcoded `DEVICE = "cpu"` was correct. The
+  CLAUDE.md default (assume A10G, write `device="cuda"`) would have CRASHED on
+  the grader and burned a credit. CLAUDE.md §2.4 "the stricter reading wins"
+  paid off here. Consequence: GPU is only usable for dev, never for the shipped
+  plan; model size is bounded by CPU runtime.
+- Domain "Sequence To Sequence", Difficulty Medium, tag `feature-engineering`,
+  status Accepted. Dataset source hidden until the challenge closes.
+- Leaderboard (public, 9 solvers): 0.7087 / 0.7044 / 0.6894 / 0.6850 / 0.6732 /
+  0.6721 / 0.6472 / 0.6319 / 0.5679. Top score 0.709. 15 submissions total.
+- **"9/10 solvers beat AI"** and rank 9 at 0.5679 carries a merit payout, so the
+  AI baseline is BELOW 0.5679 — lower than the ~0.60 the prompt stated. Our
+  held-out 0.5816 (on a deliberately harsh split, 1 seed, 72% of the data)
+  should clear it.
+- At 10 baseline-beaters a selection/countdown starts; 6/6 credits available;
+  11h25m remaining at time of reading.
+- Implication for sizing: `torch.set_num_threads(4)` is tuned to THIS dev box.
+  If the grader's CPU has more cores, that leaves compute unused and the model
+  could be larger within the same wall-clock budget. Raise to a fixed constant
+  (never `os.cpu_count()`, which is an environment branch).
