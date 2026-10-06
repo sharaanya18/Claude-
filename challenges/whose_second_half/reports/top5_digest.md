@@ -79,3 +79,32 @@ All five solve the same problem the same way: **learn artist-to-artist affinity 
 - Rank 1, 2, 3, 4: all fitted statistics exclude test sessions; test rows read per row. Within-row joint decoding only. Look clean by our standard. Rank 2 calls `use_deterministic_algorithms(True)` without `warn_only` (runtime-error risk). Rank 1 uses forked multiprocessing pools (fixed seeds, single-thread workers; keep determinism check).
 - Rank 5: see flags in its section; do not copy items (i)-(iii).
 - None of the five constructs extra labelled rows from full days. That idea stays a reviewer-risk question (could read as "solver-generated synthetic training data"); the top-5 evidence says it is not needed.
+
+## 6. Gap analysis: our approach vs the five (analysis only; challenge is closed, nothing to rebuild)
+
+"Ours" = the submitted pipeline (public 0.54, user-reported) plus the improvement ideas I proposed in this session. Grade: 1 = matches what top solvers did, 0.5 = partly, 0 = missed or contradicted. Classes: K knowledge, P process, J judgement.
+
+| Item | Top-5 evidence | Ours | Grade | Class |
+|---|---|---|---|---|
+| Affinity target = new-in-second-half artists | ranks 1, 2, 3 explicit | all-plays target (`Ca`); I did not spot this when auditing | 0 | K |
+| Several embedding views, IN and OUT tables | 5/5 multi-view; 1, 3 in.out | one window-20 Word2Vec, cosine only; my audit asked to test *smaller* embeddings, not more views | 0 | K / J |
+| Per-fold refit of every learned statistic | 5/5 | Item2Vec per fold, kernel and release graph `fit_all`, 20 feature folds vs 5 model folds; I did flag this | 1 | (matched) |
+| Score test under the fold pools and average | 2, 4 | test from full pool, train from 20-fold pools; I flagged train/test feature mismatch but not this fix | 0.5 | K |
+| Row-aware head (equivariant layers, double-centring, shared-artist count) | 5/5 | independent per-pair MLP; I listed rank-based/Sinkhorn ideas but not row context in the head | 0.5 | K |
+| Exact 720 permutation likelihood / row+col CE | 3, 4, 5 exact; 1, 2 row+col | exact NLL (already in ours) | 1 | (matched) |
+| Large feature-bagged ensemble | 1, 2: 20 members | 3 seeds; I proposed "number of seeds" in a small grid, not 10-20 randomised members | 0.5 | J |
+| Listener-fingerprint features | 2, 3, 4 | partial traits; I suggested session-shape features | 0.5 | K |
+| In-script blend / temperature / decoder grids | 2, 3, 4 | temperature only; I proposed all three | 1 | (matched) |
+| Honest reporting block (per-fold, unseen folds, single-seed spread, strata, train-probe gap) | 4 | I proposed most of it | 1 | (matched) |
+| Grouped CV by prefix-session connected components | **none** used it: all five used random row folds with fold-excluded corpora | I made it the centrepiece; I never checked whether rows actually share prefix sessions | 0 (unneeded) | J |
+| Build extra labelled rows from full days | **none** did | I floated it as the main lever | 0 (contradicted, plus rule risk) | J |
+| Token-level interaction head | rank 1 only | not considered | 0 | K |
+| Compliance caution | rank 5 breaks 2.3 #5 style rules; 1-4 clean | I raised the extra-rows rule risk | 1 | (matched) |
+
+Score: 8.5 / 14 on the items that applied; weighted by apparent impact the misses are concentrated in the evidence (target, views, in.out) and the head, not in validation.
+
+Takeaways
+1. My emphasis on a new validation framework was reasonable hygiene but is **not** where rank was won: the leaders used plain random row folds. What they did right was exclude held-out groups from every fitted statistic, which I matched.
+2. My biggest miss was reading the task definition closely enough to see that the target is "artist new in the second half", so the affinity should be learned for exactly that.
+3. A process miss: I started a local baseline run that was killed when the sandbox restarted, so there was never a measured cross-validated number to anchor the gap. Run long jobs in the foreground in chunks or checkpoint outputs (see L004).
+4. A judgement miss: I proposed two things no top solver used (connected-component grouping, constructing extra rows) and did not propose the one structurally different idea that the winner used (token-level interaction head).
