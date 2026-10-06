@@ -37,7 +37,8 @@ SUBMISSION_OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("./working/sub
 SEED = 1234
 NUM_THREADS = 4           # fixed; set to the real core count of the platform before submitting
 N_FOLDS = 5
-EPOCHS = 24
+EPOCHS = 20
+N_MEMBERS = 2             # independent seeds per fold; OOF = mean of members, test = mean of all fold x member models
 BATCH = 16
 LR = 2e-3
 WD = 1e-2
@@ -179,6 +180,33 @@ def augment_batch(X, widths, flips, vflips):
     return X
 
 
+def stretch_sample(x, w, ms, f, rng):
+    """Horizontally rescale the plot interior by factor f (changes the point density per pixel), keep the chart
+    width fixed by cropping (f > 1) or padding with blank columns (f < 1); mark positions move with the content."""
+    L = WIDTH_LEFT
+    inner = x[:, L:w - L]
+    n = inner.shape[1]
+    m = max(8, int(round(n * f)))
+    xs = (np.arange(m) + 0.5) * (n / m) - 0.5
+    new = np.stack([np.interp(xs, np.arange(n), ch) for ch in inner]).astype(np.float32)
+    out = x.copy()
+    if m >= n:
+        o = int(rng.randint(0, m - n + 1))
+        out[:, L:w - L] = new[:, o:o + n]
+        shift = -o
+    else:
+        o = int(rng.randint(0, n - m + 1))
+        out[:NB + 1, L:w - L] = 0
+        out[:NB + 1, L + o:L + o + m] = new[:NB + 1]
+        shift = o
+    ms2 = []
+    for xm, b in ms:
+        x2 = L + (xm - L) * f + shift
+        if L <= x2 < w - L:
+            ms2.append((x2, b))
+    return out, ms2
+
+
 def loss_fn(out, heat, brk, bw, valid):
     hl = out[:, 0]
     # focal-ish BCE on the heat-map, only over the plot area
@@ -196,7 +224,7 @@ def loss_fn(out, heat, brk, bw, valid):
     return lh + 0.5 * lb
 
 
-def _train_fold(X, Wd, M, marks, tr_idx, epochs=EPOCHS, seed=SEED, vflip_aug=True, hflip_aug=True, verbose=True):
+def _train_fold(X, Wd, M, marks, tr_idx, epochs=EPOCHS, seed=SEED, vflip_aug=True, hflip_aug=True, stretch_p=0.5, verbose=True):
     seed_everything(seed)
     rng = np.random.RandomState(seed)
     net = Net(NB + 2, M.shape[1])
@@ -212,7 +240,13 @@ def _train_fold(X, Wd, M, marks, tr_idx, epochs=EPOCHS, seed=SEED, vflip_aug=Tru
             fl = (rng.rand(len(idx)) < 0.5) & hflip_aug
             vf = (rng.rand(len(idx)) < 0.5) & vflip_aug
             xb = augment_batch(X[idx], Wd[idx], fl, vf)
-            heat, brk, bw = make_targets([marks[i] for i in idx], Wd[idx], fl)
+            mk = []
+            for j, i in enumerate(idx):
+                ms = [((Wd[i] - 1) - xm if fl[j] else xm, b) for xm, b in marks[i]]
+                if stretch_p > 0 and rng.rand() < stretch_p:
+                    xb[j], ms = stretch_sample(xb[j], Wd[i], ms, float(np.exp(rng.uniform(np.log(0.8), np.log(1.25)))), rng)
+                mk.append(ms)
+            heat, brk, bw = make_targets(mk, Wd[idx], np.zeros(len(idx), bool))
             valid = np.zeros((len(idx), WMAX), np.float32)
             for j, i in enumerate(idx):
                 valid[j, :Wd[i]] = 1
@@ -372,22 +406,25 @@ def main():
             prior[b] += 1
     prior /= prior.sum()
 
-    # 1) cross-cell CV: every fold model never sees the held-out dataset x fieldtype cells; test = mean of fold models
+    # 1) cross-cell CV: every fold model never sees the held-out dataset x fieldtype cells; test = mean of all fold x member models
     oof_h = [None] * len(tr); oof_b = [None] * len(tr)
     test_h = [None] * len(te); test_b = [None] * len(te)
+    n_models = N_FOLDS * N_MEMBERS
     for f in range(N_FOLDS):
         te_idx = np.where(folds == f)[0]; tr_idx = np.where(folds != f)[0]
-        log(f"fold {f}: train {len(tr_idx)} held-out {len(te_idx)}")
-        net = _train_fold(X, Wd, M, marks, tr_idx, epochs=EPOCHS, seed=SEED + f)
-        hh, bb = predict_net(net, X, Wd, M, te_idx)
-        for k, i in enumerate(te_idx):
-            oof_h[i] = hh[k]; oof_b[i] = bb[k]
-        th, tb = predict_net(net, Xt, Wt, Mt, np.arange(len(te)))   # each test chart is scored on its own
-        for i in range(len(te)):
-            if test_h[i] is None:
-                test_h[i] = th[i] / N_FOLDS; test_b[i] = tb[i] / N_FOLDS
-            else:
-                test_h[i] = test_h[i] + th[i] / N_FOLDS; test_b[i] = test_b[i] + tb[i] / N_FOLDS
+        for mem in range(N_MEMBERS):
+            log(f"fold {f} member {mem}: train {len(tr_idx)} held-out {len(te_idx)}")
+            net = _train_fold(X, Wd, M, marks, tr_idx, epochs=EPOCHS, seed=SEED + 100 * mem + f)
+            hh, bb = predict_net(net, X, Wd, M, te_idx)
+            for k, i in enumerate(te_idx):
+                oof_h[i] = hh[k] / N_MEMBERS if oof_h[i] is None else oof_h[i] + hh[k] / N_MEMBERS
+                oof_b[i] = bb[k] / N_MEMBERS if oof_b[i] is None else oof_b[i] + bb[k] / N_MEMBERS
+            th, tb = predict_net(net, Xt, Wt, Mt, np.arange(len(te)))   # each test chart is scored on its own
+            for i in range(len(te)):
+                if test_h[i] is None:
+                    test_h[i] = th[i] / n_models; test_b[i] = tb[i] / n_models
+                else:
+                    test_h[i] = test_h[i] + th[i] / n_models; test_b[i] = test_b[i] + tb[i] / n_models
 
     # 2) decision threshold and bracket calibration, chosen on out-of-fold predictions only (two numbers + one temperature)
     grid = [round(t, 2) for t in np.arange(0.30, 0.86, 0.05)]
