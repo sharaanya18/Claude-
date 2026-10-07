@@ -1,3 +1,24 @@
+"""Same-reader endorsement ranking (GoEmotions-style panel pairs). Metric: average precision.
+
+Task: for a comment with two emotion labels that each got exactly one endorsement, rank comments by the
+probability that ONE annotator chose both labels (label 1) rather than two different annotators (label 0).
+
+Requirements map (challenge text -> where it is satisfied)
+- "Train a ML model using the supplied labels"      -> four trained members (linear x2, LightGBM, fine-tuned
+                                                      transformer), blended; predictions come only from them.
+- "Pretrained HF models may be loaded"             -> distilroberta-base is fine-tuned on the train folds;
+                                                      all-MiniLM-L6-v2 is a frozen encoder feeding a linear model.
+- "No external data / synthetic data / saved preds"-> only train.csv + train_labels.csv; no cached artefacts.
+- "Use test data only for prediction"              -> every vectoriser, encoder-head, booster, blend weight and
+                                                      score standardiser is fit on train folds / train OOF only;
+                                                      test rows are scored one row at a time by the fitted models
+                                                      (no ranking, scaling or statistics across test rows).
+- Determinism                                      -> fixed seeds, folds, epochs, batch size, rounds; time is only
+                                                      used for logging; no hardware/env branches.
+
+Validation: 5-fold StratifiedGroupKFold. Groups are normalised comment text (the hidden split is disjoint by
+text group), stratified on label x annotator_count. Test predictions are the average of the fold models.
+"""
 import os
 import random
 import sys
@@ -27,15 +48,15 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import OneHotEncoder
 from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warmup
 
-
+# ----------------------------- fixed work plan -----------------------------
 SEED = 42
 N_FOLDS = 5
-DEVICE = "cuda"
-USE_AMP = True
+DEVICE = "cuda"                      # A10G target; flip to "cpu" ONLY for local smoke tests, then restore
+USE_AMP = True                       # bf16 autocast on GPU (False for local CPU smoke tests)
 NUM_THREADS = 4
-ENCODER_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-FT_NAME = "distilroberta-base"
-FT_SEEDS = (42, 43, 44)
+ENCODER_NAME = "sentence-transformers/all-MiniLM-L6-v2"   # frozen encoder for the embedding-LR member
+FT_NAME = "distilroberta-base"       # fine-tuned member
+FT_SEEDS = (42, 43, 44)              # independent inits/shuffles, same folds; averaged
 FT_EPOCHS = 2
 FT_BATCH = 32
 FT_LR = 3e-5
@@ -44,7 +65,7 @@ FT_MAX_LEN = 72
 TFIDF_C = 0.3
 EMB_C, EMB_W = 0.3, 0.5
 LGB_ROUNDS = 300
-T0 = time.time()
+T0 = time.time()                     # LOGGING ONLY
 
 
 def log(msg):
@@ -72,6 +93,7 @@ def validate_submission(sub, sample_path):
     assert np.isfinite(v).all() and (v >= 0).all() and (v <= 1).all(), "bad probabilities"
 
 
+# ----------------------------- data + validation -----------------------------
 def load_data():
     train = pd.read_csv(PUBLIC_DIR / "train.csv").merge(
         pd.read_csv(PUBLIC_DIR / "train_labels.csv"), on="id", how="left", validate="one_to_one")
@@ -81,6 +103,7 @@ def load_data():
 
 
 def make_folds(train):
+    """Group by normalised text (disjoint text groups, like the hidden split); stratify label x raters."""
     y = train["p_same_reader"].to_numpy().astype(int)
     cnt = train["annotator_count"].to_numpy().astype(int)
     norm = train["text"].astype(str).str.lower().str.replace(r"[^a-z0-9 ]", "", regex=True).str.strip()
@@ -95,7 +118,9 @@ def cat_frame(df):
     return pd.DataFrame({"cnt": cnt, "a": a, "b": b, "ca": cnt + "_" + a, "cb": cnt + "_" + b, "pair": a + "|" + b})
 
 
+# ----------------------------- member 1: one-hot + TF-IDF logistic regression -----------------------------
 def fit_predict_tfidf(tr_df, tr_y, eval_dfs):
+    """Fit on the train rows only; return one score vector per frame in eval_dfs."""
     enc = OneHotEncoder(handle_unknown="ignore")
     vec = TfidfVectorizer(ngram_range=(1, 2), min_df=2, sublinear_tf=True)
     x_tr = hstack([enc.fit_transform(cat_frame(tr_df)), vec.fit_transform(tr_df["text"].astype(str))]).tocsr()
@@ -104,7 +129,9 @@ def fit_predict_tfidf(tr_df, tr_y, eval_dfs):
             for d in eval_dfs]
 
 
+# ----------------------------- member 2: one-hot + frozen sentence embedding LR -----------------------------
 def embed_texts(texts, tok, enc_model, batch=64):
+    """Mean-pooled frozen encoder embedding; each row is encoded independently of every other row."""
     order = np.argsort([len(t) for t in texts], kind="stable")
     out = np.zeros((len(texts), enc_model.config.hidden_size), dtype=np.float32)
     enc_model.eval()
@@ -119,6 +146,7 @@ def embed_texts(texts, tok, enc_model, batch=64):
 
 
 def fit_predict_emb(tr_df, tr_y, emb_tr, eval_sets):
+    """eval_sets: list of (frame, embeddings); fit on train rows only."""
     enc = OneHotEncoder(handle_unknown="ignore")
     x_tr = hstack([enc.fit_transform(cat_frame(tr_df)), csr_matrix(EMB_W * emb_tr)]).tocsr()
     clf = LogisticRegression(C=EMB_C, max_iter=3000, random_state=SEED).fit(x_tr, tr_y)
@@ -126,6 +154,7 @@ def fit_predict_emb(tr_df, tr_y, emb_tr, eval_sets):
             for d, e in eval_sets]
 
 
+# ----------------------------- member 3: LightGBM on structured + text-shape features -----------------------------
 def lgb_features(df, emotions):
     idx = {e: i for i, e in enumerate(emotions)}
     ia, ib = df["emotion_a"].map(idx), df["emotion_b"].map(idx)
@@ -157,7 +186,9 @@ def fit_predict_lgb(tr_df, tr_y, eval_dfs, emotions):
     return out
 
 
+# ----------------------------- member 4: fine-tuned transformer with emotion/rater embeddings -----------------------------
 class PairClassifier(nn.Module):
+    """Backbone over '<a> and <b> (<n> raters)' + comment, mean-pooled, concatenated with learned emotion/rater embeddings."""
 
     def __init__(self, n_emotions):
         super().__init__()
@@ -203,6 +234,7 @@ def ft_logits(model, X, pad_id, bs=128):
 
 
 def fine_tune_fold(X_tr, y_tr, X_ev_list, tok, n_emotions, seed):
+    """Train one model on the fold's train rows; return logits for each evaluation set in X_ev_list."""
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
     model = PairClassifier(n_emotions).to(DEVICE)
     head_params = list(model.emo.parameters()) + list(model.rater.parameters()) + list(model.head.parameters())
@@ -234,7 +266,9 @@ def fine_tune_fold(X_tr, y_tr, X_ev_list, tok, n_emotions, seed):
     return outs
 
 
+# ----------------------------- blending (train OOF only) -----------------------------
 def blend_weights(z_oof, y, grid_step=0.1):
+    """Non-negative, sum-to-one weights on standardised member scores, chosen by pooled OOF AP on a coarse grid."""
     k = z_oof.shape[1]
     best_w, best_ap = np.ones(k) / k, -1.0
     ticks = np.round(np.arange(0, 1 + 1e-9, grid_step), 6)
@@ -263,7 +297,7 @@ def main():
     emo_idx = {e: i for i, e in enumerate(emotions)}
     log(f"train {train.shape} test {test.shape} positive rate {y.mean():.4f}")
 
-
+    # frozen-encoder embeddings (each text encoded independently; no fitting)
     tok_e = AutoTokenizer.from_pretrained(ENCODER_NAME)
     enc_model = AutoModel.from_pretrained(ENCODER_NAME).to(DEVICE)
     emb_tr = embed_texts(train["text"].astype(str).tolist(), tok_e, enc_model)
@@ -283,14 +317,14 @@ def main():
 
     for f, (a, b) in enumerate(folds):
         tr_df, va_df = train.iloc[a], train.iloc[b]
-
+        # members 1-3: fit on the fold's train rows, score the held-out fold and the test set separately
         for n, (s_va, s_te) in (
                 ("tfidf_lr", fit_predict_tfidf(tr_df, y[a], [va_df, test])),
                 ("emb_lr", fit_predict_emb(tr_df, y[a], emb_tr[a], [(va_df, emb_tr[b]), (test, emb_te)])),
                 ("lgbm", fit_predict_lgb(tr_df, y[a], [va_df, test], emotions))):
             oof[n][b] = s_va
             tst[n] += s_te / N_FOLDS
-
+        # member 4: fine-tuned transformer, several seeds
         for seed in FT_SEEDS:
             lo_va, lo_te = fine_tune_fold(sub_x(X_all, a), y[a], [sub_x(X_all, b), X_test], tok_f, len(emotions), seed)
             oof["finetune"][b] += lo_va / len(FT_SEEDS)
@@ -302,7 +336,7 @@ def main():
         folds_ap = [average_precision_score(y[b], oof[n][b]) for _, b in folds]
         log(f"OOF {n}: fold-mean AP {np.mean(folds_ap):.4f} sd {np.std(folds_ap):.4f} pooled {average_precision_score(y, oof[n]):.4f}")
 
-
+    # standardise each member with its own train-OOF mean/std, then blend (weights from OOF only)
     mu = {n: oof[n].mean() for n in names}
     sd = {n: oof[n].std() for n in names}
     z_oof = np.column_stack([(oof[n] - mu[n]) / sd[n] for n in names])
@@ -310,11 +344,11 @@ def main():
     w, w_ap = blend_weights(z_oof, y)
     eq_ap = average_precision_score(y, z_oof.mean(1))
     log(f"blend weights {dict(zip(names, w.round(2)))} OOF AP {w_ap:.4f} (equal weights {eq_ap:.4f})")
-
+    # shrink toward equal weights: a coarse grid on ~12k rows over-fits a little
     w = 0.5 * w + 0.5 * np.ones(len(names)) / len(names)
     log(f"final OOF AP with shrunk weights {average_precision_score(y, z_oof @ w):.4f}")
 
-
+    # monotone squash of the blended score to (0, 1): per-row, does not change the ranking
     prob = 1.0 / (1.0 + np.exp(-(z_tst @ w)))
     sub = pd.DataFrame({"id": test["id"].values, "p_same_reader": np.clip(prob, 0.0, 1.0)})
     validate_submission(sub, sample_path)
