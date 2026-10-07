@@ -2,7 +2,7 @@ import sys,time; sys.path.insert(0,'dev')
 from common import *
 import torch
 from transformers import AutoTokenizer, AutoModel
-torch.set_num_threads(4)
+torch.set_num_threads(2)
 tr,te=load()
 name=sys.argv[1]
 tok=AutoTokenizer.from_pretrained(name); m=AutoModel.from_pretrained(name).eval()
