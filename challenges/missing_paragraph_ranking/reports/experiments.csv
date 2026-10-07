@@ -1,0 +1,25 @@
+experiment_id,representation,character_ngrams,word_features,model,loss,negative_sampling,augmentation,corruption_rate,hard_negative_mining,ensemble,validation_score,top1,top3,top5,mean_rank,notes
+E00_chance,none,none,none,none,none,none,none,0.30,no,no,0.5000,0.050,0.150,0.250,10.50,published chance; sample_submission order = 0.5037
+E01_tfidf_charwb25,char_wb tfidf,2-5,no,none (cosine),none,none,none,0.30,no,no,0.3490,0.189,,0.462,7.63,HARNESS CALIBRATION: published reference on real eval = 0.3387 -> proxy is ~0.010 pessimistic
+E02_tfidf_charwb25_20pct,char_wb tfidf,2-5,no,none (cosine),none,none,none,0.20,no,no,0.3009,0.256,,0.548,6.72,same method at training noise; the 20->30% shift costs ~0.048
+E03_tfidf_word,word tfidf,none,yes,none (cosine),none,none,none,0.30,no,no,0.4771,0.071,,0.282,10.00,exact word match is destroyed by letter corruption; near chance
+E04_tfidf_char33,char tfidf,3-3,no,none (cosine),none,none,none,0.30,no,no,0.3774,,,,,best single contiguous order; AUC 0.6226
+E05_tfidf_char55,char tfidf,5-5,no,none (cosine),none,none,none,0.30,no,no,0.4516,,,,,long n-grams destroyed by noise; AUC 0.5484
+E06_fuzzy_token,equal-length token agreement,none,yes,none (hand score),none,none,none,0.30,no,no,0.3538,0.180,,0.469,,hand-built fuzzy matcher is NOT better than tfidf; no shortcut rule exists
+E07_lsa128,char tfidf + TruncatedSVD,2-5,no,none (cosine),none,none,none,0.30,no,no,0.4063,,,,,fold 0; raw cosine same fold 0.3636 - every bottleneck LOSES
+E08_lsa512,char tfidf + TruncatedSVD,2-5,no,none (cosine),none,none,none,0.30,no,no,0.3768,,,,,fold 0; still worse than raw
+E09_cca_supervised,LSA + supervised low-rank CCA,2-5,no,CCA rank16-64,cross-covariance,none,none,0.30,no,no,0.4257,,,,,fold 0; supervised low-rank association does NOT help
+E10_sparse_dual,char tfidf -> learned projection,2-5,no,dual encoder (19.5M par),InfoNCE,same-subfield in-batch,re-corruption,0.30,no,no,0.4393,0.082,,0.335,9.35,overfits instantly; 256-d sketch destroys a 0.036-vs-0.026 cosine gap
+E11_charcnn,raw characters,none,no,char CNN dual encoder,InfoNCE + denoising,same-subfield in-batch,re-corruption,0.30,no,no,0.4099,0.093,,0.369,8.79,CPU-undertrained; flat across noise (robust) but weak absolute
+E12_seed_g3w5,spaced seeds w3 window<=5,gapped 3,no,none (cosine),none,none,none,0.30,no,no,0.3174,0.235,,0.509,,FIRST BIG WIN: gapped beats contiguous
+E13_seed_w3_3to7,spaced seeds w3 window<=7,gapped 3,no,none (cosine),none,none,none,0.30,no,no,0.3040,0.247,,0.529,,weight-3 is the sweet spot (0.7^3=0.343 survival)
+E14_seed_full,spaced seeds w2+w3+w4 window<=8,gapped 2-4,no,none (cosine),none,none,none,0.30,no,no,0.3025,0.247,,0.543,6.75,BEST UNSUPERVISED REPRESENTATION; 63 seeds
+E15_seed_full_20pct,spaced seeds w2+w3+w4,gapped 2-4,no,none (cosine),none,none,none,0.20,no,no,0.2746,,,,,same representation at training noise
+E16_mindf,spaced seeds,gapped 2-4,no,none (cosine),none,none,none,0.30,no,no,0.3030,,,,,min_df 1/2/3 = 0.3044/0.3030/0.3025; no real effect
+E17_poolidf,spaced seeds + within-pool rarity,gapped 2-4,no,none (cosine),none,none,none,0.30,no,no,0.3037,,,,,NO GAIN (alpha 0.25 best vs 0.3045 baseline); global idf already captures it
+E18_family_fusion,per-family normalised cosines,gapped 2-4,no,none (z-fusion),none,none,none,0.30,no,no,0.3005,,,,,zmean w3+w4; +0.0025 vs pooled space - within noise
+E19_idf_exponent,spaced seeds idf^alpha,gapped 2-4,no,none (cosine),none,none,none,0.30,no,no,0.3030,,,,,alpha=1.0 (standard idf^2 total) is already optimal; NO GAIN
+E20_rank_linear,evidence profile (36 strata),gapped 2-4,no,linear listwise,softmax CE,same-subfield pools,re-corruption 0.20-0.42,0.30,no,no,0.3227,,,,,fold 0 outer-val; cosine on same setup 0.3203 - linear over strata does not beat the cosine
+E21_rank_mlp,evidence profile (36 strata),gapped 2-4,no,MLP listwise + set-attn,softmax CE,same-subfield pools,re-corruption 0.20-0.42,0.30,no,no,0.3133,,,,,fold 0 outer-val vs cosine 0.3203; GAIN +0.007
+E22_evidence2,complementary scorers (11),gapped 2-4,no,none (solo),none,none,none,0.30,no,no,0.3039,,,,,cos_all; n_agree solo 0.3112; top5share solo 0.6873 (strongly ANTI-correlated - decoys concentrate evidence)
+E23_final,evidence2 + pool-relative + rank,gapped 2-4,no,listwise MLP + set-attn,softmax CE,same-subfield pools,re-corruption 0.20-0.42,0.30,no,5 folds x 3 inits,PENDING,,,,,final ensemble - see final_approach.md
