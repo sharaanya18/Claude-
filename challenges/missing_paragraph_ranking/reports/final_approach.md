@@ -126,6 +126,38 @@ ties), which is tie-safe and order-independent, and every training/validation po
 permuted with its label tracked. The same class of bug (ties resolved by position) had already
 appeared once, in the metric itself, early in the work.
 
+## 6b. STRIP-THE-ML TEST — the material rejection risk (measured)
+
+Run on the shipped solution's own folds and pools (`dev/strip_ml_test.py`): remove the trained
+ranker entirely and rank by the raw cosine feature alone.
+
+| | score @30 % | gain over chance (0.5) |
+|---|---|---|
+| cosine alone, **no trained model** | 0.3153 ± 0.0104 | 0.1847 |
+| shipped listwise ranker | 0.3076 ± 0.0109 | 0.1924 |
+| **value added by the trained model** | **+0.0077** | **4 % of the total gain** |
+
+The challenge says: *"a solution that keeps most of its score with the trained model removed is
+rule-based and not allowed."* Removing the trained model here keeps **96 %** of the gain. The
+repo's rejection log calls this class **T**: *"wrapping a banned lexical mechanism (TF-IDF/BM25/
+Jaccard) in extra ML does not exempt it… if a description bans a method, treat features derived
+from it as the same method"*, and **Q1** is the strip-the-ML test itself.
+
+**Assessment: this solution is at material risk of rejection in the post-close review**, which
+forfeits any placement (credits are never refunded). The spaced-seed bank is a *better lexical
+rule*, not learning — exactly the thing the challenge's floor-and-ban wording anticipates.
+
+What would fix it is a trained model that genuinely beats the lexical mechanism rather than
+re-weighting it. That has not been achieved: the character encoder tops out at 0.435 alone
+(settled on GPU) and low-rank/supervised-association variants all score worse than the cosine.
+The untested candidate with the right shape is the **character denoiser**, because a trained
+network would be doing the work that produces the score, not decorating it.
+
+A second, smaller exposure (rejection class **Q3**): `SEED_SPEC`, `N_RARE` and the augmentation
+range are constants chosen by offline CV rather than searched inside the script. The seed
+*weights* are a principled default (survival 0.7^w under the stated noise), but the window range
+was selected on local CV over ~10 candidates and should be re-derived in-script.
+
 ## 7. Compliance
 
 - From scratch: every weight randomly initialised and trained in-script on the supplied data.
