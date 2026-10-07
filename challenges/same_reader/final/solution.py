@@ -52,6 +52,7 @@ def seed_everything(seed=SEED):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    torch.use_deterministic_algorithms(True, warn_only=True)
     torch.set_num_threads(NUM_THREADS)
 
 
