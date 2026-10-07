@@ -10,7 +10,6 @@ WORK_DIR = SUBMISSION_OUT.parent
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 
 os.environ["PYTHONHASHSEED"] = "0"
-os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_HOME"] = str(WORK_DIR / "hf_cache")
 
@@ -30,15 +29,13 @@ from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warm
 
 SEED = 42
 N_FOLDS = 5
-DEVICE = "cuda"
-USE_AMP = True
 NUM_THREADS = 4
 ENCODER_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-FT_NAME = "distilroberta-base"
-FT_SEEDS = (42, 43, 44)
+FT_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+FT_SEEDS = (42,)
 FT_EPOCHS = 2
 FT_BATCH = 32
-FT_LR = 3e-5
+FT_LR = 8e-5
 FT_HEAD_LR = 1e-3
 FT_MAX_LEN = 72
 TFIDF_C = 0.3
@@ -55,10 +52,6 @@ def seed_everything(seed=SEED):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.use_deterministic_algorithms(True, warn_only=True)
     torch.set_num_threads(NUM_THREADS)
 
 
@@ -111,7 +104,7 @@ def embed_texts(texts, tok, enc_model, batch=64):
     with torch.no_grad():
         for i in range(0, len(texts), batch):
             idx = order[i:i + batch]
-            x = tok([texts[j] for j in idx], padding=True, truncation=True, max_length=64, return_tensors="pt").to(DEVICE)
+            x = tok([texts[j] for j in idx], padding=True, truncation=True, max_length=64, return_tensors="pt")
             h = enc_model(**x).last_hidden_state
             m = x["attention_mask"].unsqueeze(-1).float()
             out[idx] = ((h * m).sum(1) / m.sum(1)).cpu().numpy()
@@ -185,9 +178,9 @@ def encode_pairs(df, tok, emo_idx):
 def make_batch(X, idx, pad_id):
     rows = [X[0][i] for i in idx]
     width = max(len(r) for r in rows)
-    ids = torch.tensor([r + [pad_id] * (width - len(r)) for r in rows], device=DEVICE)
-    mask = torch.tensor([[1] * len(r) + [0] * (width - len(r)) for r in rows], device=DEVICE)
-    t = lambda arr: torch.tensor(arr[idx], device=DEVICE)
+    ids = torch.tensor([r + [pad_id] * (width - len(r)) for r in rows])
+    mask = torch.tensor([[1] * len(r) + [0] * (width - len(r)) for r in rows])
+    t = lambda arr: torch.tensor(arr[idx])
     return ids, mask, t(X[1]), t(X[2]), t(X[3])
 
 
@@ -195,7 +188,7 @@ def ft_logits(model, X, pad_id, bs=128):
     model.eval()
     order = np.argsort([len(r) for r in X[0]], kind="stable")
     out = np.zeros(len(X[0]))
-    with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=USE_AMP):
+    with torch.no_grad():
         for i in range(0, len(order), bs):
             idx = order[i:i + bs]
             out[idx] = model(*make_batch(X, idx, pad_id)).float().cpu().numpy()
@@ -203,8 +196,8 @@ def ft_logits(model, X, pad_id, bs=128):
 
 
 def fine_tune_fold(X_tr, y_tr, X_ev_list, tok, n_emotions, seed):
-    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
-    model = PairClassifier(n_emotions).to(DEVICE)
+    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
+    model = PairClassifier(n_emotions)
     head_params = list(model.emo.parameters()) + list(model.rater.parameters()) + list(model.head.parameters())
     opt = torch.optim.AdamW([{"params": model.backbone.parameters(), "lr": FT_LR},
                              {"params": head_params, "lr": FT_HEAD_LR}], weight_decay=0.01)
@@ -213,15 +206,14 @@ def fine_tune_fold(X_tr, y_tr, X_ev_list, tok, n_emotions, seed):
     sched = get_linear_schedule_with_warmup(opt, int(0.06 * steps), steps)
     gen = torch.Generator()
     gen.manual_seed(seed)
-    y_t = torch.tensor(y_tr, dtype=torch.float32, device=DEVICE)
+    y_t = torch.tensor(y_tr, dtype=torch.float32)
     lossf = nn.BCEWithLogitsLoss()
     for _ in range(FT_EPOCHS):
         model.train()
         perm = torch.randperm(n, generator=gen).numpy()
         for i in range(0, n, FT_BATCH):
             idx = perm[i:i + FT_BATCH]
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=USE_AMP):
-                logit = model(*make_batch(X_tr, idx, tok.pad_token_id))
+            logit = model(*make_batch(X_tr, idx, tok.pad_token_id))
             loss = lossf(logit.float(), y_t[idx])
             opt.zero_grad()
             loss.backward()
@@ -230,7 +222,6 @@ def fine_tune_fold(X_tr, y_tr, X_ev_list, tok, n_emotions, seed):
             sched.step()
     outs = [ft_logits(model, X, tok.pad_token_id) for X in X_ev_list]
     del model, opt
-    torch.cuda.empty_cache()
     return outs
 
 
@@ -265,11 +256,10 @@ def main():
 
 
     tok_e = AutoTokenizer.from_pretrained(ENCODER_NAME)
-    enc_model = AutoModel.from_pretrained(ENCODER_NAME).to(DEVICE)
+    enc_model = AutoModel.from_pretrained(ENCODER_NAME)
     emb_tr = embed_texts(train["text"].astype(str).tolist(), tok_e, enc_model)
     emb_te = embed_texts(test["text"].astype(str).tolist(), tok_e, enc_model)
     del enc_model
-    torch.cuda.empty_cache()
     log("embeddings done")
 
     names = ["tfidf_lr", "emb_lr", "lgbm", "finetune"]
