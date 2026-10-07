@@ -4,7 +4,7 @@ sys.path.insert(0,'src'); import index as IX
 sys.modules['__main__'].Corpus=IX.Corpus
 from lib import norm
 from metric import text_score
-from apply import reconstruct
+from apply import reconstruct ,looks_tabular
 C=pickle.load(open('working/corpus.pkl','rb'))
 D='dataset/public/'
 tr=pd.read_csv(D+'train.csv',keep_default_na=False)
@@ -15,7 +15,7 @@ for r in tr.itertuples():
     ids,true=g[r.item_id]; sec=norm(r.section_label).replace('s. ','').upper()
     rows=sorted((C.pos[u] for u in ids), key=lambda i:(C.date[i],C.label[i]))
     plan=[(C.text[i],[pp for cc,pp in C.arefs[i] if cc==r.act_citation],
-           ('Extent of repeal' in C.text[i] or 'Extent of revocation' in C.text[i])) for i in rows]
+           looks_tabular(C.text[i])) for i in rows]
     out,k=reconstruct(norm(r.enacted_text),plan,sec)
     sc.append(text_score(r.enacted_text,out,true)); nap.append(k)
 sc=np.array(sc)

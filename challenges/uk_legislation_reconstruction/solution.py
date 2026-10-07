@@ -83,8 +83,10 @@ SEEDS = (42, 202)          # two seeds per booster: cheap variance reduction
 N_FOLDS = 5                # folds are grouped by Act, mirroring the hidden split
 RET_ROUNDS = 400           # fixed boosting rounds (no early stopping on the clock)
 GATE_ROUNDS = 300
-RET_THR = 0.25             # chosen on Act-grouped OOF; the 0.20-0.30 plateau is flat
-GATE_THR = 0.20            # chosen on Act-grouped OOF; the 0.20-0.30 plateau is flat
+RET_THR = 0.25             # id-list threshold, chosen on Act-grouped OOF (flat 0.20-0.30)
+PLAN_THR = 0.25            # width of the reconstruction plan, chosen on Act-grouped OOF
+PLAN_THRS = (0.35, 0.20, 0.10)   # plan widths the gate is trained over, so width is a feature
+GATE_THR = 0.45            # edit-gate threshold, chosen on Act-grouped OOF
 NUM_THREADS = 4
 T0 = time.time()
 
@@ -388,8 +390,10 @@ SCOPE_RX = re.compile(
 SEC_SCOPE_RX = re.compile(r"\bsections?\s+([0-9]{1,4}[A-Z]{0,3})((?:\([0-9A-Za-z]{1,4}\))*)", re.I)
 DEFN_RX = re.compile(r"\bthe\s+definition\s+of\s+\"([^\"]{1,120})\"", re.I)
 
-_SUBST = r"(?:substitute[ds]?|there\s+(?:is|are|shall\s+be)\s+substituted|there\s+shall\s+be\s+substituted)"
+_SUBST = r"(?:substitute[ds]?|there\s+(?:is|are|shall\s+be)\s+substituted)"
 _INSERT = r"(?:insert(?:ed)?|there\s+(?:is|are|shall\s+be)\s+inserted|add(?:ed)?)"
+# older Acts write "there shall be substituted the following subsection -" before the content
+_FOLLOWING = r"(?:\s+the\s+following(?:\s+[a-z-]+){0,3}|\s+as\s+follows)?"
 _PROV = r"(?:sub-?sections?|subsections?|paragraphs?|sub-?paragraphs?)"
 
 RE_FOR_SUB = re.compile(
@@ -406,32 +410,57 @@ RE_WORDS_FROM = re.compile(
 
 RE_SUB_PROV = re.compile(
     r"for\s+(?:the\s+)?" + _PROV + r"\s+(?P<tags>\([0-9A-Za-z]{1,4}\)(?:\s*(?:,|and|to)\s*\([0-9A-Za-z]{1,4}\))*)"
-    r"[^\"]{0,90}?" + _SUBST + r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
+    r"[^\"]{0,90}?" + _SUBST + _FOLLOWING + r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
 RE_SUB_DEFN = re.compile(
-    r"for\s+the\s+definition\s+of\s+\"(?P<name>[^\"]{1,120})\"[^\"]{0,60}?" + _SUBST + r"\s*[-:]\s*(?P<new>.+)$",
+    r"for\s+the\s+definition\s+of\s+\"(?P<name>[^\"]{1,120})\"[^\"]{0,60}?" + _SUBST + _FOLLOWING + r"\s*[-:]\s*(?P<new>.+)$",
     re.I | re.S)
 RE_INS_PROV = re.compile(
     r"after\s+(?:the\s+)?" + _PROV + r"\s+(?P<tags>\([0-9A-Za-z]{1,4}\))[^\"]{0,70}?" + _INSERT +
-    r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
+    _FOLLOWING + r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
 RE_INS_PROV_Q = re.compile(
     r"after\s+(?:the\s+)?" + _PROV + r"\s+(?P<tags>\([0-9A-Za-z]{1,4}\))[^\"]{0,70}?" + _INSERT +
     r"\s*[-:]?\s*\"(?P<new>[^\"]{1,600})\"", re.I)
 RE_INS_DEFN = re.compile(
     r"after\s+the\s+definition\s+of\s+\"(?P<name>[^\"]{1,120})\"[^\"]{0,60}?" + _INSERT +
-    r"\s*[-:]?\s*(?P<new>.+)$", re.I | re.S)
+    _FOLLOWING + r"\s*[-:]?\s*(?P<new>.+)$", re.I | re.S)
 RE_OMIT_PROV = re.compile(
     r"(?:omit|omits)\s+(?:the\s+)?" + _PROV +
     r"\s+(?P<tags>\([0-9A-Za-z]{1,4}\)(?:\s*(?:,|and|to)\s*\([0-9A-Za-z]{1,4}\))*)", re.I)
 RE_PROV_REPEALED = re.compile(
     _PROV + r"\s+(?P<tags>(?:\([0-9A-Za-z]{1,4}\))+)\s+(?:is|are)\s+(?:repealed|omitted|revoked)", re.I)
 RE_OMIT_DEFN = re.compile(r"omit\s+the\s+definition\s+of\s+\"(?P<name>[^\"]{1,120})\"", re.I)
+# "After section 51(8) of that Act insert - (8A) ..." / "For section 172(1)(a) substitute - (a) ..."
+RE_SEC_INS_PROV = re.compile(
+    r"after\s+section\s+(?P<sec>[0-9]{1,4}[A-Z]{0,3})(?P<tags>(?:\([0-9A-Za-z]{1,4}\))+)"
+    r"[^\"]{0,120}?" + _INSERT + _FOLLOWING + r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
+RE_SEC_SUB_PROV = re.compile(
+    r"for\s+section\s+(?P<sec>[0-9]{1,4}[A-Z]{0,3})(?P<tags>(?:\([0-9A-Za-z]{1,4}\))+)"
+    r"[^\"]{0,120}?" + _SUBST + _FOLLOWING + r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
+# "for the sum of £60.20 there shall be substituted the sum of £62.20" - operands are not quoted
+_AMT = r"(?:the\s+(?:sum|figure|amount|words?|number)\s+of\s+)?(?P<A>[£$]?[0-9][0-9,.]*(?:\s*per\s+cent\w*)?)"
+RE_SUB_AMOUNT = re.compile(
+    r"for\s+(?:the\s+(?:sum|figure|amount|number)\s+of\s+)?(?P<old>[£$][0-9][0-9,.]*|\b[0-9][0-9,.]*\s*per\s+cent\w*)"
+    r"[^\"]{0,100}?" + _SUBST + r"\s+(?:the\s+(?:sum|figure|amount|number)\s+of\s+)?"
+    r"(?P<new>[£$][0-9][0-9,.]*|\b[0-9][0-9,.]*\s*per\s+cent\w*)", re.I)
+# "omit the final 'and'" / "the word 'and' at the end" - the LAST occurrence in scope
+RE_OMIT_FINAL = re.compile(r"omit\s+the\s+(?:final|last|closing)\s+\"(?P<old>[^\"]{1,80})\"", re.I)
+# "for the words from A to the end substitute <unquoted content>"
+RE_SUBSPAN_OPEN = re.compile(
+    r"the\s+words\s+from\s+\"(?P<a>[^\"]{1,300})\"\s+to\s+(?:\"(?P<b>[^\"]{1,300})\"|the\s+end)"
+    r"[^\"]{0,40}?" + _SUBST + _FOLLOWING + r"\s*[-:]?\s*(?P<new>[^\"].{0,900})$", re.I | re.S)
 RE_OMIT_SECS = re.compile(
     r"(?:omit|repeal)\w*\s+(?P<lst>sections?\s+[0-9]{1,4}[A-Z]{0,3}(?:\([0-9A-Za-z]{1,4}\))*"
     r"(?:\s*(?:,|and)\s*(?:sections?\s+)?[0-9]{1,4}[A-Z]{0,3}(?:\([0-9A-Za-z]{1,4}\))*)*)", re.I)
 RE_SUBLIST = re.compile(
-    r"[Ff]or\s+(?:the\s+words?\s+)?\"(?P<old>[^\"]{1,300})\"[^\"]{0,60}?" + _SUBST +
-    r"[^\"]{0,30}?\"(?P<new>[^\"]{0,300})\"[^.]{0,80}?in\s+the\s+following\s+"
-    r"(?:provisions|enactments|sections)[^-:]{0,60}[-:]\s*(?P<lst>.{0,2500})", re.I | re.S)
+    r"[Ff]or\s+(?:the\s+words?\s+)?\"(?P<old>[^\"]{1,300})\"[^\"]{0,120}?" + _SUBST +
+    r"[^\"]{0,40}?\"(?P<new>[^\"]{0,300})\"[^.]{0,120}?"
+    r"(?:in\s+the\s+following\s+(?:provisions|enactments|sections)|"
+    r"in\s+each\s+provision[^-:]{0,80}|in\s+the\s+provisions[^-:]{0,80})[^-:]{0,60}[-:]\s*(?P<lst>.{0,3000})",
+    re.I | re.S)
+# "In each provision specified ... for "A" ... there is substituted "B" ... <list of Acts/sections>"
+RE_SUBLIST2 = re.compile(
+    r"[Ii]n\s+each\s+provision\s+specified[^\"]{0,200}?for\s+\"(?P<old>[^\"]{1,200})\""
+    r"[^\"]{0,200}?" + _SUBST + r"[^\"]{0,40}?\"(?P<new>[^\"]{0,200})\"(?P<lst>.{0,4000})", re.I | re.S)
 RE_APPROP = re.compile(r"at\s+the\s+appropriate\s+places?\s+" + _INSERT + r"\s*[-:]?\s*(?P<new>.+)$", re.I | re.S)
 RE_END_INS = re.compile(r"at\s+the\s+end\s+(?:of\s+[^,]{0,40}\s+)?" + _INSERT + r"\s*[-:]?\s*(?P<new>.+)$", re.I | re.S)
 
@@ -591,6 +620,16 @@ def parse_instructions(text, sec):
         m = RE_SUB_PROV.search(cl)
         if m:
             ins.append(dict(base, op="subprov", tags=_tags(m.group("tags")), new=_clean_new(m.group("new"))))
+        m = RE_SEC_SUB_PROV.search(cl)
+        if m and m.group("sec").upper() == sec:
+            tg = _tags(m.group("tags"))
+            ins.append(dict(base, op="subprov", chain=tg[:-1], tags=[tg[-1]],
+                            new=_clean_new(m.group("new"))))
+        m = RE_SEC_INS_PROV.search(cl)
+        if m and m.group("sec").upper() == sec:
+            tg = _tags(m.group("tags"))
+            ins.append(dict(base, op="insprov", chain=tg[:-1], tags=[tg[-1]],
+                            new=_clean_new(m.group("new"))))
         m = RE_INS_PROV.search(cl) or RE_INS_PROV_Q.search(cl)
         if m:
             ins.append(dict(base, op="insprov", tags=_tags(m.group("tags")), new=_clean_new(m.group("new"))))
@@ -603,6 +642,14 @@ def parse_instructions(text, sec):
             ins.append(dict(base, op="after", old=m.group("anchor"), new=m.group("new")))
         for m in RE_BEFORE_INS.finditer(cl):
             ins.append(dict(base, op="before", old=m.group("anchor"), new=m.group("new")))
+        for m in RE_SUB_AMOUNT.finditer(cl):
+            ins.append(dict(base, op="sub", old=m.group("old"), new=m.group("new"), every=False))
+        for m in RE_OMIT_FINAL.finditer(cl):
+            ins.append(dict(base, op="omitlast", old=m.group("old")))
+        m = RE_SUBSPAN_OPEN.search(cl)
+        if m:
+            ins.append(dict(base, op="subspan", a=m.group("a"), b=m.group("b") or "",
+                            new=_clean_new(m.group("new"))))
         for m in RE_WORDS_FROM.finditer(cl):
             tail = cl[m.end():m.end() + 90]
             sm2 = re.search(_SUBST + r"[^\"]{0,30}?\"(?P<new>[^\"]{0,400})\"", tail, re.I)
@@ -623,7 +670,7 @@ def parse_instructions(text, sec):
                     tg = _tags(sm.group(2) or "")
                     if tg:
                         ins.append(dict(op="omitprov", tags=[tg[-1]], chain=tg[:-1], defn=None))
-        for m in RE_SUBLIST.finditer(cl):
+        for m in list(RE_SUBLIST.finditer(cl)) + list(RE_SUBLIST2.finditer(cl)):
             for sm in RE_TBL_SECLIST.finditer(m.group("lst")):
                 if sm.group(1).upper() == sec:
                     ins.append(dict(op="sub", old=m.group("old"), new=m.group("new"),
@@ -655,9 +702,43 @@ RE_TBL_WORDS_IN = re.compile(
 RE_TBL_SECLIST = re.compile(r"sections?\s+([0-9]{1,4}[A-Z]{0,3})((?:\([0-9A-Za-z]{1,4}\))*)", re.I)
 
 
+RE_MONEY = re.compile(r"[£$]\s?[0-9][0-9,]*(?:\.[0-9]{1,2})?")
+RE_UPRATE_HEAD = re.compile(r"Column\s+1|TABLE\s+OF\s+INCREASE|Old\s+limits?|New\s+limits?", re.I)
+RE_TBL_ROW_SPLIT = re.compile(r"(?=\b(?:Section|Paragraph|Article|Regulation)\s+[0-9])")
+
+
+def parse_uprating(text, sec):
+    """Up-rating orders: a four-column table whose rows read
+    "<n> Section 145E(3) of the 1992 Act  <subject>  £3,100  £3,600".
+    The effect is a substitution of the old figure by the new one inside that provision."""
+    if not RE_UPRATE_HEAD.search(text[:4000]):
+        return []
+    ins = []
+    for seg in RE_TBL_ROW_SPLIT.split(text):
+        m = re.match(r"(?:Section|Paragraph|Article|Regulation)\s+([0-9]{1,4}[A-Z]{0,3})"
+                     r"((?:\([0-9A-Za-z]{1,4}\))*)", seg)
+        if not m or m.group(1).upper() != sec:
+            continue
+        amts = RE_MONEY.findall(seg)
+        if len(amts) < 2:
+            continue
+        old, new = amts[-2].replace(" ", ""), amts[-1].replace(" ", "")
+        if old == new:
+            continue
+        ins.append(dict(op="sub", old=old, new=new, chain=_tags(m.group(2) or ""),
+                        defn=None, every=False))
+    return ins
+
+
 def parse_table(text, sec):
     """Parse a repeal/revocation table segment into omissions of the target section."""
     ins = []
+    # the table's own header names its enabling section ("SCHEDULE 14 ... Section 92 Title
+    # Extent of repeal"); entries only start after the first Act heading, so anything before
+    # that is header text and must not be read as a repeal of the queried section
+    first_act = RE_ACTREF_ANY.search(text)
+    if first_act and first_act.start() < 400:
+        text = text[first_act.start():]
     for m in RE_TBL_WORDS_IN.finditer(text):
         for sm in RE_TBL_SECLIST.finditer(m.group("lst")):
             if sm.group(1).upper() == sec:
@@ -770,33 +851,45 @@ def apply_one(s, e):
         if not old:
             return s, False
         p = _find(seg, old)
+        q = p + len(old) if p >= 0 else -1
         if p < 0:
             p = _find(s, old)
-            if p < 0:
+            if p >= 0:
+                lo, hi, seg = 0, len(s), s
+                q = p + len(old)
+            else:
                 return s, False
-            lo, hi, seg = 0, len(s), s
         if op == "sub":
             if e.get("every"):
                 return put(_replace_all(seg, old, e["new"])[0])
-            return put(seg[:p] + e["new"] + seg[p + len(old):])
+            return put(seg[:p] + e["new"] + seg[q:])
         if op == "omit":
-            return put(re.sub(r"\s{2,}", " ", seg[:p] + seg[p + len(old):]))
+            return put(re.sub(r"\s{2,}", " ", seg[:p] + seg[q:]))
         if op == "after":
-            q = p + len(old)
             return put(_join(seg[:q], e["new"]) + seg[q:])
         return put(_join_r(seg[:p] + e["new"], seg[p:]))
     if op in ("omitspan", "subspan"):
-        a = seg.find(e["a"])
+        a = _find(seg, e["a"])
         if a < 0:
             return s, False
         if e.get("b"):
-            b = seg.find(e["b"], a)
+            b = _find(seg, e["b"], a)
             end = (b + len(e["b"])) if b >= 0 else len(seg)
         else:
             end = len(seg)
         rep = e.get("new", "")
         return put(re.sub(r"\s{2,}", " ", (_join_r(seg[:a] + rep, seg[end:]) if rep
                                            else seg[:a] + seg[end:])))
+    if op == "omitlast":
+        old = (e.get("old") or "").strip()
+        p = -1
+        q = _find(seg, old)
+        while q >= 0:
+            p = q
+            q = _find(seg, old, q + 1)
+        if p < 0:
+            return s, False
+        return put(re.sub(r"\s{2,}", " ", seg[:p] + seg[p + len(old):]))
     if op == "omitnear":
         sp = span_of(s, (e.get("chain") or []) + [e["tag"]], mk)
         a, b = (max(0, sp[0] - 60), min(len(s), sp[1] + 10)) if sp else (lo, hi)
@@ -898,13 +991,31 @@ def focus(text, sec, act_positions, limit=4000):
     return text[lo:max(hi, p + 400)]
 
 
+MULTI_ACT = 5
+RE_TABULAR = re.compile(r"Extent\s+of\s+(?:repeal|revocation|amendment)|\bColumn\s+1\b", re.I)
+
+
+def looks_tabular(text):
+    """A consequential-amendment / repeal table: entries are grouped under Act headings."""
+    return bool(RE_TABULAR.search(text[:6000]))
+
+
 def all_instructions(text, sec, act_positions, is_table):
-    """Edits from one provision: clause parsing, plus table parsing when it looks tabular."""
-    ins = [] if is_table else parse_instructions(text[:60000], sec)
-    if is_table or not ins:
-        ins = ins + parse_table(focus(text, sec, act_positions, 6000), sec)
-        if is_table and not ins:
-            ins = parse_instructions(focus(text, sec, act_positions, 6000), sec)
+    """Edits from one provision.
+
+    A provision that lists many Acts (a repeal or consequential-amendment table) must first be
+    narrowed to the stretch belonging to the queried Act, or every other Act's entries would be
+    read as amendments of this section.  A long provision that concerns a single Act is parsed
+    whole, because its clause structure already scopes each instruction.
+    """
+    body = text[:60000]
+    multi_act = len(set(m.group(0) for m in RE_ACTREF_ANY.finditer(body))) >= MULTI_ACT
+    win = focus(text, sec, act_positions, 6000) if (is_table or multi_act) else body
+    ins = parse_instructions(win, sec)
+    if not ins:
+        ins = parse_table(win, sec)
+    if not ins:
+        ins = parse_uprating(body, sec)
     return ins
 
 
@@ -1153,7 +1264,7 @@ class FeatureBuilder:
         v = self._pcache.get(key)
         if v is None:
             C = self.C; t = C.text[i]
-            tbl = ('Extent of repeal' in t) or ('Extent of revocation' in t)
+            tbl = looks_tabular(t)
             ap = [p for c, p in C.arefs[i] if c == Q['acit']]
             try:
                 ins = all_instructions(t, Q['sec'], ap, tbl)
@@ -1250,23 +1361,30 @@ class FeatureBuilder:
 
 
 # ======================================================= edit-gate features
-OPS = ["sub", "omit", "after", "before", "omitspan", "subspan", "omitnear", "subprov",
+OPS = ["sub", "omit", "after", "before", "omitspan", "subspan", "omitnear", "omitlast", "subprov",
        "insprov", "omitprov", "subdefn", "insdefn", "omitdefn", "approp", "endins"]
 GFEATS = (["op_" + o for o in OPS] +
           ["n_old", "n_new", "found_scope", "found_glob", "n_occ", "depth", "resolved",
            "every", "has_defn", "defn_found", "prov_score", "prov_days", "prov_tbl",
            "prov_nins", "prov_len", "ins_idx", "ins_n", "en_len", "n_prov", "chg_frac",
            "new_marker", "new_marker_next", "cur_len_ratio", "applied", "osec",
-           "quoted_old", "new_in_cur", "del_frac", "ins_frac"])
+           "quoted_old", "new_in_cur", "del_frac", "ins_frac",
+           # sequence state: what the walk has already done
+           "seq_idx", "n_done", "dup_exact", "dup_old", "new_already", "old_gone",
+           "prov_rank", "plan_thr"])
 
 
-def gate_row(e, s, ctx):
-    """Feature vector for instruction `e` against running text `s`."""
+def gate_row(e, s, ctx, done):
+    """Feature vector for instruction `e` against the current text `s`.
+
+    `done` is the list of (op, old, new) already applied in this walk, which is what makes the
+    duplicate and already-made-this-change signals available.
+    """
     f = {k: 0.0 for k in GFEATS}
     if "op_" + e["op"] in f:
         f["op_" + e["op"]] = 1.0
-    old = e.get("old") or e.get("a") or ""
-    new = e.get("new") or ""
+    old = (e.get("old") or e.get("a") or "")
+    new = (e.get("new") or "")
     f["n_old"] = len(old.split()); f["n_new"] = len(new.split())
     mk = markers(s)
     chain = e.get("chain") or []
@@ -1277,16 +1395,16 @@ def gate_row(e, s, ctx):
         f["found_scope"] = 1.0 if _find(s[lo:hi], old) >= 0 else 0.0
         f["found_glob"] = 1.0 if _find(s, old) >= 0 else 0.0
         f["n_occ"] = min(20.0, float(s.count(old)))
+        f["old_gone"] = 0.0 if f["found_glob"] else 1.0
     f["every"] = 1.0 if e.get("every") else 0.0
     if e.get("defn"):
         f["has_defn"] = 1.0
         f["defn_found"] = 1.0 if ('"%s"' % e["defn"]) in s else 0.0
     if e.get("tags"):
         f["resolved"] = 1.0 if span_of(s, chain + [e["tags"][-1]], mk) is not None else 0.0
-    f["prov_score"] = ctx["prov_score"]; f["prov_days"] = ctx["prov_days"]
-    f["prov_tbl"] = ctx["prov_tbl"]; f["prov_nins"] = ctx["prov_nins"]
-    f["prov_len"] = ctx["prov_len"]; f["ins_idx"] = ctx["ins_idx"]; f["ins_n"] = ctx["ins_n"]
-    f["en_len"] = ctx["en_len"]; f["n_prov"] = ctx["n_prov"]
+    for k in ("prov_score", "prov_days", "prov_tbl", "prov_nins", "prov_len",
+              "ins_idx", "ins_n", "en_len", "n_prov", "prov_rank", "plan_thr"):
+        f[k] = ctx.get(k, 0.0)
     f["chg_frac"] = (len(old.split()) + len(new.split())) / max(1.0, ctx["en_len"])
     m = re.match(r"\(([0-9A-Za-z]{1,4})\)", new)
     if m:
@@ -1296,6 +1414,12 @@ def gate_row(e, s, ctx):
     f["osec"] = float(e.get("osec") or 0.0)
     f["quoted_old"] = 1.0 if old else 0.0
     f["new_in_cur"] = 1.0 if (new and new[:40] in s) else 0.0
+    f["seq_idx"] = float(ctx.get("seq_idx", 0.0))
+    f["n_done"] = float(len(done))
+    key = (e["op"], old, new)
+    f["dup_exact"] = 1.0 if key in done else 0.0
+    f["dup_old"] = 1.0 if (old and any(d[1] == old for d in done)) else 0.0
+    f["new_already"] = 1.0 if (len(new) > 8 and new[:40] in s) else 0.0
     s2, ok = apply_one(s, e)
     f["applied"] = 1.0 if (ok and s2 != s) else 0.0
     d = len(s2) - len(s)
@@ -1304,27 +1428,62 @@ def gate_row(e, s, ctx):
     return [f[k] for k in GFEATS], s2, ok
 
 
-def plan_rows(enacted, plan_instr, ctxs, true_text=None):
-    """Walk the plan once, collecting gate features and (optionally) incremental gains."""
-    s = enacted
-    en = mtok(enacted)
-    et, kt = (edits(en, mtok(true_text)) if true_text is not None else (None, None))
+def _tidy(s):
+    return re.sub(r"\s+", " ", s).strip()
 
-    def sc(txt):
+
+def walk(enacted, instr, ctxs, decide):
+    """Run the plan, asking `decide(row)` whether to keep each edit.
+
+    Returns (feature rows, decisions, final text).  Rejected edits leave the text untouched,
+    so later features describe the text the accepted edits actually produced.
+    """
+    s = enacted
+    done = []
+    X, took = [], []
+    for j, (e, ctx) in enumerate(zip(instr, ctxs)):
+        c = dict(ctx); c["seq_idx"] = float(j)
+        row, s2, ok = gate_row(e, s, c, done)
+        X.append(row)
+        keep = decide(row, e, s, s2, ok)
+        took.append(bool(keep))
+        if keep and ok and s2 != s:
+            s = s2
+            done.append((e["op"], (e.get("old") or e.get("a") or ""), (e.get("new") or "")))
+    return X, took, _tidy(s)
+
+
+def oracle_walk(enacted, instr, ctxs, true_text):
+    """Teacher walk: keep an edit iff it improves the exact metric at its turn."""
+    en = mtok(enacted)
+    et, kt = edits(en, mtok(true_text))
+
+    def score(txt):
         ep, kp = edits(en, mtok(txt))
         return 0.0 if kp < 0.5 * kt else f1(ep, et)
 
-    cur = sc(s) if et is not None else 0.0
-    X, Y = [], []
-    for e, ctx in zip(plan_instr, ctxs):
-        row, s2, ok = gate_row(e, s, ctx)
-        X.append(row)
-        if et is not None:
-            nxt = sc(re.sub(r"\s+", " ", s2).strip())
-            Y.append(nxt - cur)
-            cur = nxt
-        s = s2
-    return X, Y, re.sub(r"\s+", " ", s).strip()
+    cur = [score(enacted)]
+
+    def decide(row, e, s, s2, ok):
+        if not ok or s2 == s:
+            return False
+        v = score(_tidy(s2))
+        if v > cur[0] + 1e-12:
+            cur[0] = v
+            return True
+        return False
+
+    X, took, out = walk(enacted, instr, ctxs, decide)
+    return X, [1 if t else 0 for t in took], out, cur[0]
+
+
+def model_walk(enacted, instr, ctxs, predict, thr):
+    """Inference walk: the model stands in for the oracle."""
+    def decide(row, e, s, s2, ok):
+        if not ok or s2 == s:
+            return False
+        return predict(row) >= thr
+    return walk(enacted, instr, ctxs, decide)
 
 
 # ======================================================= pipeline helpers
@@ -1356,15 +1515,16 @@ def retrieval_matrix(C, FB, queries):
             np.asarray(qi, dtype=np.int32), np.asarray(cu, dtype=np.int32))
 
 
-def build_plan(C, Q, rows, scores):
+def build_plan(C, Q, rows, scores, plan_thr=0.0):
     """Chronologically ordered instructions from the selected provisions, with context."""
     order = sorted(range(len(rows)), key=lambda k: (C.date[rows[k]], C.label[rows[k]]))
+    rank = {k: r for r, k in enumerate(sorted(range(len(rows)), key=lambda k: -scores[k]))}
     instr, ctxs = [], []
     for k in order:
         i = rows[k]
         t = C.text[i]
         ap = [p for c, p in C.arefs[i] if c == Q["acit"]]
-        tbl = ("Extent of repeal" in t) or ("Extent of revocation" in t)
+        tbl = looks_tabular(t)
         es = all_instructions(t, Q["sec"], ap, tbl)
         for j, e in enumerate(es):
             instr.append(e)
@@ -1372,7 +1532,8 @@ def build_plan(C, Q, rows, scores):
                              prov_tbl=1.0 if tbl else 0.0, prov_nins=float(len(es)),
                              prov_len=float(np.log1p(len(t))), ins_idx=float(j), ins_n=float(len(es)),
                              en_len=float(len(Q["en"].split())), n_prov=float(len(rows)),
-                             en_chars=float(len(Q["en"]))))
+                             en_chars=float(len(Q["en"])), prov_rank=float(rank[k]),
+                             plan_thr=float(plan_thr)))
     return instr, ctxs
 
 
@@ -1382,14 +1543,6 @@ def select_ids(C, p, uids, thr, min_one=True):
     if min_one and not keep and len(o):
         keep = [int(uids[o[0]])]
     return keep
-
-
-def apply_gated(enacted, instr, ctxs, gate_pred, thr):
-    s = enacted
-    for e, g in zip(instr, gate_pred):
-        if g >= thr:
-            s, _ = apply_one(s, e)
-    return re.sub(r"\s+", " ", s).strip()
 
 
 
@@ -1479,21 +1632,33 @@ def build_rows(C, FB, queries):
     return add_rank_feats(X, qi, len(queries)), qi, cu
 
 
+def plan_at(C, Q, p, cols, thr):
+    """The provisions a given score threshold selects, as a chronological edit plan."""
+    o = np.argsort(-p, kind="stable")
+    sel = [j for j in o if p[j] >= thr]
+    if not sel and len(o):
+        sel = [o[0]]
+    return build_plan(C, Q, [int(cols[j]) for j in sel], [float(p[j]) for j in sel], thr)
+
+
 def gate_training_rows(C, queries, rows_meta, oof, qi, cu, truth):
-    """Walk each training query's plan once, labelling every parsed edit with the metric
-    gain it produced.  Plans are built from OUT-OF-FOLD retrieval scores so the gate is
-    trained on the same kind of (imperfect) provision sets it will see at inference."""
-    GX, GY, gq = [], [], []
+    """Teacher walks that train the gate.
+
+    For every training query the plan is walked once per plan width in PLAN_THRS; at each
+    edit the oracle keeps it iff the exact metric improves, and the row records the features
+    available at that moment.  Plans come from OUT-OF-FOLD retrieval scores, so the gate is
+    trained on the same kind of imperfect provision sets it meets at inference, and the
+    several widths both triple the data and teach it how plan width changes the decision.
+    """
+    GX, GY, gfold = [], [], []
     for k in range(len(queries)):
         m = qi == k
-        p = oof[m]; rr = cu[m]
-        o = np.argsort(-p, kind="stable")
-        sel = [j for j in o if p[j] >= RET_THR] or ([o[0]] if len(o) else [])
-        instr, ctxs = build_plan(C, queries[k], [int(rr[j]) for j in sel], [float(p[j]) for j in sel])
-        gx, gy, _ = plan_rows(queries[k]["en"], instr, ctxs, truth[rows_meta[k]][1])
-        GX += gx; GY += gy; gq += [k] * len(gx)
+        for thr in PLAN_THRS:
+            instr, ctxs = plan_at(C, queries[k], oof[m], cu[m], thr)
+            gx, gy, _, _ = oracle_walk(queries[k]["en"], instr, ctxs, truth[rows_meta[k]][1])
+            GX += gx; GY += gy; gfold += [k] * len(gx)
     X = np.asarray(GX, dtype=np.float32).reshape(-1, len(GFEATS))
-    return X, np.asarray(GY, dtype=np.float32), np.asarray(gq, dtype=np.int32)
+    return X, np.asarray(GY, dtype=np.int32), np.asarray(gfold, dtype=np.int32)
 
 
 def main():
@@ -1546,11 +1711,14 @@ def main():
 
     ret_models = fit_bagged(RET_PARAMS, Xtr, ytr, RET_ROUNDS)
 
-    # ---------- MODEL 2: edit gate, trained on metric gains measured from OOF plans ----------
+    # ---------- MODEL 2: edit gate, trained by imitation of the oracle walk ----------
     GX, GY, gq = gate_training_rows(C, tr_queries, tr_ids, oof, qitr, cutr, truth)
-    glab = (GY > 1e-9).astype(int)
-    log("gate matrix %s, %.3f of edits improve the metric" % (GX.shape, glab.mean()))
-    gate_models = fit_bagged(GATE_PARAMS, GX, glab, GATE_ROUNDS)
+    log("gate matrix %s, oracle keeps %.3f of parsed edits" % (GX.shape, GY.mean()))
+    gate_models = fit_bagged(GATE_PARAMS, GX, GY, GATE_ROUNDS)
+
+    def gate_predict(row):
+        a = np.asarray(row, dtype=np.float32).reshape(1, -1)
+        return float(np.mean([m.predict(a)[0] for m in gate_models]))
 
     # ---------- inference: one test row at a time ----------
     Xte, qite, cute = build_rows(C, FB, te_queries)
@@ -1570,13 +1738,16 @@ def main():
             rowsel = [int(cute[m[j]]) for j in sel]
             scores = [float(p[j]) for j in sel]
             ids = sorted(int(C.uid[i]) for i in rowsel)
+            # the plan may be built from a wider set than the id list: the two terms are
+            # scored separately and the gate can still veto a weak provision's edits
+            selp = [j for j in o if p[j] >= PLAN_THR] or [o[0]]
+            rowsel = [int(cute[m[j]]) for j in selp]
+            scores = [float(p[j]) for j in selp]
         else:
             rowsel, scores, ids = [], [], []
-        instr, ctxs = build_plan(C, Q, rowsel, scores)
+        instr, ctxs = build_plan(C, Q, rowsel, scores, PLAN_THR)
         if instr:
-            gx, _, _ = plan_rows(Q["en"], instr, ctxs, None)
-            gp = predict_bagged(gate_models, np.asarray(gx, dtype=np.float32).reshape(-1, len(GFEATS)))
-            txt = apply_gated(Q["en"], instr, ctxs, gp, GATE_THR)
+            _, _, txt = model_walk(Q["en"], instr, ctxs, gate_predict, GATE_THR)
         else:
             txt = Q["en"]
         # a prediction must never be empty: an empty cell reloads as NaN and fails the check

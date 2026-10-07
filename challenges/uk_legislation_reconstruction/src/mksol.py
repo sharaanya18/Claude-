@@ -87,8 +87,10 @@ SEEDS = (42, 202)          # two seeds per booster: cheap variance reduction
 N_FOLDS = 5                # folds are grouped by Act, mirroring the hidden split
 RET_ROUNDS = 400           # fixed boosting rounds (no early stopping on the clock)
 GATE_ROUNDS = 300
-RET_THR = 0.25             # chosen on Act-grouped OOF; the 0.20-0.30 plateau is flat
-GATE_THR = 0.20            # chosen on Act-grouped OOF; the 0.20-0.30 plateau is flat
+RET_THR = 0.25             # id-list threshold, chosen on Act-grouped OOF (flat 0.20-0.30)
+PLAN_THR = 0.25            # width of the reconstruction plan, chosen on Act-grouped OOF
+PLAN_THRS = (0.35, 0.20, 0.10)   # plan widths the gate is trained over, so width is a feature
+GATE_THR = 0.45            # edit-gate threshold, chosen on Act-grouped OOF
 NUM_THREADS = 4
 T0 = time.time()
 

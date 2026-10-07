@@ -3,7 +3,7 @@ sys.path.insert(0,'src'); import index as IX
 sys.modules['__main__'].Corpus=IX.Corpus
 from lib import norm
 from metric import mtok,edits,f1,text_score
-from apply import apply_one
+from apply import apply_one, looks_tabular
 from pipe import make_query,build_plan
 C=pickle.load(open('working/corpus.pkl','rb'))
 D='dataset/public/'

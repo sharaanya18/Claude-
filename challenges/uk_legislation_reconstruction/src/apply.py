@@ -100,8 +100,10 @@ SCOPE_RX = re.compile(
 SEC_SCOPE_RX = re.compile(r"\bsections?\s+([0-9]{1,4}[A-Z]{0,3})((?:\([0-9A-Za-z]{1,4}\))*)", re.I)
 DEFN_RX = re.compile(r"\bthe\s+definition\s+of\s+\"([^\"]{1,120})\"", re.I)
 
-_SUBST = r"(?:substitute[ds]?|there\s+(?:is|are|shall\s+be)\s+substituted|there\s+shall\s+be\s+substituted)"
+_SUBST = r"(?:substitute[ds]?|there\s+(?:is|are|shall\s+be)\s+substituted)"
 _INSERT = r"(?:insert(?:ed)?|there\s+(?:is|are|shall\s+be)\s+inserted|add(?:ed)?)"
+# older Acts write "there shall be substituted the following subsection -" before the content
+_FOLLOWING = r"(?:\s+the\s+following(?:\s+[a-z-]+){0,3}|\s+as\s+follows)?"
 _PROV = r"(?:sub-?sections?|subsections?|paragraphs?|sub-?paragraphs?)"
 
 RE_FOR_SUB = re.compile(
@@ -118,32 +120,57 @@ RE_WORDS_FROM = re.compile(
 
 RE_SUB_PROV = re.compile(
     r"for\s+(?:the\s+)?" + _PROV + r"\s+(?P<tags>\([0-9A-Za-z]{1,4}\)(?:\s*(?:,|and|to)\s*\([0-9A-Za-z]{1,4}\))*)"
-    r"[^\"]{0,90}?" + _SUBST + r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
+    r"[^\"]{0,90}?" + _SUBST + _FOLLOWING + r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
 RE_SUB_DEFN = re.compile(
-    r"for\s+the\s+definition\s+of\s+\"(?P<name>[^\"]{1,120})\"[^\"]{0,60}?" + _SUBST + r"\s*[-:]\s*(?P<new>.+)$",
+    r"for\s+the\s+definition\s+of\s+\"(?P<name>[^\"]{1,120})\"[^\"]{0,60}?" + _SUBST + _FOLLOWING + r"\s*[-:]\s*(?P<new>.+)$",
     re.I | re.S)
 RE_INS_PROV = re.compile(
     r"after\s+(?:the\s+)?" + _PROV + r"\s+(?P<tags>\([0-9A-Za-z]{1,4}\))[^\"]{0,70}?" + _INSERT +
-    r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
+    _FOLLOWING + r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
 RE_INS_PROV_Q = re.compile(
     r"after\s+(?:the\s+)?" + _PROV + r"\s+(?P<tags>\([0-9A-Za-z]{1,4}\))[^\"]{0,70}?" + _INSERT +
     r"\s*[-:]?\s*\"(?P<new>[^\"]{1,600})\"", re.I)
 RE_INS_DEFN = re.compile(
     r"after\s+the\s+definition\s+of\s+\"(?P<name>[^\"]{1,120})\"[^\"]{0,60}?" + _INSERT +
-    r"\s*[-:]?\s*(?P<new>.+)$", re.I | re.S)
+    _FOLLOWING + r"\s*[-:]?\s*(?P<new>.+)$", re.I | re.S)
 RE_OMIT_PROV = re.compile(
     r"(?:omit|omits)\s+(?:the\s+)?" + _PROV +
     r"\s+(?P<tags>\([0-9A-Za-z]{1,4}\)(?:\s*(?:,|and|to)\s*\([0-9A-Za-z]{1,4}\))*)", re.I)
 RE_PROV_REPEALED = re.compile(
     _PROV + r"\s+(?P<tags>(?:\([0-9A-Za-z]{1,4}\))+)\s+(?:is|are)\s+(?:repealed|omitted|revoked)", re.I)
 RE_OMIT_DEFN = re.compile(r"omit\s+the\s+definition\s+of\s+\"(?P<name>[^\"]{1,120})\"", re.I)
+# "After section 51(8) of that Act insert - (8A) ..." / "For section 172(1)(a) substitute - (a) ..."
+RE_SEC_INS_PROV = re.compile(
+    r"after\s+section\s+(?P<sec>[0-9]{1,4}[A-Z]{0,3})(?P<tags>(?:\([0-9A-Za-z]{1,4}\))+)"
+    r"[^\"]{0,120}?" + _INSERT + _FOLLOWING + r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
+RE_SEC_SUB_PROV = re.compile(
+    r"for\s+section\s+(?P<sec>[0-9]{1,4}[A-Z]{0,3})(?P<tags>(?:\([0-9A-Za-z]{1,4}\))+)"
+    r"[^\"]{0,120}?" + _SUBST + _FOLLOWING + r"\s*[-:]\s*(?P<new>.+)$", re.I | re.S)
+# "for the sum of £60.20 there shall be substituted the sum of £62.20" - operands are not quoted
+_AMT = r"(?:the\s+(?:sum|figure|amount|words?|number)\s+of\s+)?(?P<A>[£$]?[0-9][0-9,.]*(?:\s*per\s+cent\w*)?)"
+RE_SUB_AMOUNT = re.compile(
+    r"for\s+(?:the\s+(?:sum|figure|amount|number)\s+of\s+)?(?P<old>[£$][0-9][0-9,.]*|\b[0-9][0-9,.]*\s*per\s+cent\w*)"
+    r"[^\"]{0,100}?" + _SUBST + r"\s+(?:the\s+(?:sum|figure|amount|number)\s+of\s+)?"
+    r"(?P<new>[£$][0-9][0-9,.]*|\b[0-9][0-9,.]*\s*per\s+cent\w*)", re.I)
+# "omit the final 'and'" / "the word 'and' at the end" - the LAST occurrence in scope
+RE_OMIT_FINAL = re.compile(r"omit\s+the\s+(?:final|last|closing)\s+\"(?P<old>[^\"]{1,80})\"", re.I)
+# "for the words from A to the end substitute <unquoted content>"
+RE_SUBSPAN_OPEN = re.compile(
+    r"the\s+words\s+from\s+\"(?P<a>[^\"]{1,300})\"\s+to\s+(?:\"(?P<b>[^\"]{1,300})\"|the\s+end)"
+    r"[^\"]{0,40}?" + _SUBST + _FOLLOWING + r"\s*[-:]?\s*(?P<new>[^\"].{0,900})$", re.I | re.S)
 RE_OMIT_SECS = re.compile(
     r"(?:omit|repeal)\w*\s+(?P<lst>sections?\s+[0-9]{1,4}[A-Z]{0,3}(?:\([0-9A-Za-z]{1,4}\))*"
     r"(?:\s*(?:,|and)\s*(?:sections?\s+)?[0-9]{1,4}[A-Z]{0,3}(?:\([0-9A-Za-z]{1,4}\))*)*)", re.I)
 RE_SUBLIST = re.compile(
-    r"[Ff]or\s+(?:the\s+words?\s+)?\"(?P<old>[^\"]{1,300})\"[^\"]{0,60}?" + _SUBST +
-    r"[^\"]{0,30}?\"(?P<new>[^\"]{0,300})\"[^.]{0,80}?in\s+the\s+following\s+"
-    r"(?:provisions|enactments|sections)[^-:]{0,60}[-:]\s*(?P<lst>.{0,2500})", re.I | re.S)
+    r"[Ff]or\s+(?:the\s+words?\s+)?\"(?P<old>[^\"]{1,300})\"[^\"]{0,120}?" + _SUBST +
+    r"[^\"]{0,40}?\"(?P<new>[^\"]{0,300})\"[^.]{0,120}?"
+    r"(?:in\s+the\s+following\s+(?:provisions|enactments|sections)|"
+    r"in\s+each\s+provision[^-:]{0,80}|in\s+the\s+provisions[^-:]{0,80})[^-:]{0,60}[-:]\s*(?P<lst>.{0,3000})",
+    re.I | re.S)
+# "In each provision specified ... for "A" ... there is substituted "B" ... <list of Acts/sections>"
+RE_SUBLIST2 = re.compile(
+    r"[Ii]n\s+each\s+provision\s+specified[^\"]{0,200}?for\s+\"(?P<old>[^\"]{1,200})\""
+    r"[^\"]{0,200}?" + _SUBST + r"[^\"]{0,40}?\"(?P<new>[^\"]{0,200})\"(?P<lst>.{0,4000})", re.I | re.S)
 RE_APPROP = re.compile(r"at\s+the\s+appropriate\s+places?\s+" + _INSERT + r"\s*[-:]?\s*(?P<new>.+)$", re.I | re.S)
 RE_END_INS = re.compile(r"at\s+the\s+end\s+(?:of\s+[^,]{0,40}\s+)?" + _INSERT + r"\s*[-:]?\s*(?P<new>.+)$", re.I | re.S)
 
@@ -303,6 +330,16 @@ def parse_instructions(text, sec):
         m = RE_SUB_PROV.search(cl)
         if m:
             ins.append(dict(base, op="subprov", tags=_tags(m.group("tags")), new=_clean_new(m.group("new"))))
+        m = RE_SEC_SUB_PROV.search(cl)
+        if m and m.group("sec").upper() == sec:
+            tg = _tags(m.group("tags"))
+            ins.append(dict(base, op="subprov", chain=tg[:-1], tags=[tg[-1]],
+                            new=_clean_new(m.group("new"))))
+        m = RE_SEC_INS_PROV.search(cl)
+        if m and m.group("sec").upper() == sec:
+            tg = _tags(m.group("tags"))
+            ins.append(dict(base, op="insprov", chain=tg[:-1], tags=[tg[-1]],
+                            new=_clean_new(m.group("new"))))
         m = RE_INS_PROV.search(cl) or RE_INS_PROV_Q.search(cl)
         if m:
             ins.append(dict(base, op="insprov", tags=_tags(m.group("tags")), new=_clean_new(m.group("new"))))
@@ -315,6 +352,14 @@ def parse_instructions(text, sec):
             ins.append(dict(base, op="after", old=m.group("anchor"), new=m.group("new")))
         for m in RE_BEFORE_INS.finditer(cl):
             ins.append(dict(base, op="before", old=m.group("anchor"), new=m.group("new")))
+        for m in RE_SUB_AMOUNT.finditer(cl):
+            ins.append(dict(base, op="sub", old=m.group("old"), new=m.group("new"), every=False))
+        for m in RE_OMIT_FINAL.finditer(cl):
+            ins.append(dict(base, op="omitlast", old=m.group("old")))
+        m = RE_SUBSPAN_OPEN.search(cl)
+        if m:
+            ins.append(dict(base, op="subspan", a=m.group("a"), b=m.group("b") or "",
+                            new=_clean_new(m.group("new"))))
         for m in RE_WORDS_FROM.finditer(cl):
             tail = cl[m.end():m.end() + 90]
             sm2 = re.search(_SUBST + r"[^\"]{0,30}?\"(?P<new>[^\"]{0,400})\"", tail, re.I)
@@ -335,7 +380,7 @@ def parse_instructions(text, sec):
                     tg = _tags(sm.group(2) or "")
                     if tg:
                         ins.append(dict(op="omitprov", tags=[tg[-1]], chain=tg[:-1], defn=None))
-        for m in RE_SUBLIST.finditer(cl):
+        for m in list(RE_SUBLIST.finditer(cl)) + list(RE_SUBLIST2.finditer(cl)):
             for sm in RE_TBL_SECLIST.finditer(m.group("lst")):
                 if sm.group(1).upper() == sec:
                     ins.append(dict(op="sub", old=m.group("old"), new=m.group("new"),
@@ -367,9 +412,43 @@ RE_TBL_WORDS_IN = re.compile(
 RE_TBL_SECLIST = re.compile(r"sections?\s+([0-9]{1,4}[A-Z]{0,3})((?:\([0-9A-Za-z]{1,4}\))*)", re.I)
 
 
+RE_MONEY = re.compile(r"[£$]\s?[0-9][0-9,]*(?:\.[0-9]{1,2})?")
+RE_UPRATE_HEAD = re.compile(r"Column\s+1|TABLE\s+OF\s+INCREASE|Old\s+limits?|New\s+limits?", re.I)
+RE_TBL_ROW_SPLIT = re.compile(r"(?=\b(?:Section|Paragraph|Article|Regulation)\s+[0-9])")
+
+
+def parse_uprating(text, sec):
+    """Up-rating orders: a four-column table whose rows read
+    "<n> Section 145E(3) of the 1992 Act  <subject>  £3,100  £3,600".
+    The effect is a substitution of the old figure by the new one inside that provision."""
+    if not RE_UPRATE_HEAD.search(text[:4000]):
+        return []
+    ins = []
+    for seg in RE_TBL_ROW_SPLIT.split(text):
+        m = re.match(r"(?:Section|Paragraph|Article|Regulation)\s+([0-9]{1,4}[A-Z]{0,3})"
+                     r"((?:\([0-9A-Za-z]{1,4}\))*)", seg)
+        if not m or m.group(1).upper() != sec:
+            continue
+        amts = RE_MONEY.findall(seg)
+        if len(amts) < 2:
+            continue
+        old, new = amts[-2].replace(" ", ""), amts[-1].replace(" ", "")
+        if old == new:
+            continue
+        ins.append(dict(op="sub", old=old, new=new, chain=_tags(m.group(2) or ""),
+                        defn=None, every=False))
+    return ins
+
+
 def parse_table(text, sec):
     """Parse a repeal/revocation table segment into omissions of the target section."""
     ins = []
+    # the table's own header names its enabling section ("SCHEDULE 14 ... Section 92 Title
+    # Extent of repeal"); entries only start after the first Act heading, so anything before
+    # that is header text and must not be read as a repeal of the queried section
+    first_act = RE_ACTREF_ANY.search(text)
+    if first_act and first_act.start() < 400:
+        text = text[first_act.start():]
     for m in RE_TBL_WORDS_IN.finditer(text):
         for sm in RE_TBL_SECLIST.finditer(m.group("lst")):
             if sm.group(1).upper() == sec:
@@ -482,33 +561,45 @@ def apply_one(s, e):
         if not old:
             return s, False
         p = _find(seg, old)
+        q = p + len(old) if p >= 0 else -1
         if p < 0:
             p = _find(s, old)
-            if p < 0:
+            if p >= 0:
+                lo, hi, seg = 0, len(s), s
+                q = p + len(old)
+            else:
                 return s, False
-            lo, hi, seg = 0, len(s), s
         if op == "sub":
             if e.get("every"):
                 return put(_replace_all(seg, old, e["new"])[0])
-            return put(seg[:p] + e["new"] + seg[p + len(old):])
+            return put(seg[:p] + e["new"] + seg[q:])
         if op == "omit":
-            return put(re.sub(r"\s{2,}", " ", seg[:p] + seg[p + len(old):]))
+            return put(re.sub(r"\s{2,}", " ", seg[:p] + seg[q:]))
         if op == "after":
-            q = p + len(old)
             return put(_join(seg[:q], e["new"]) + seg[q:])
         return put(_join_r(seg[:p] + e["new"], seg[p:]))
     if op in ("omitspan", "subspan"):
-        a = seg.find(e["a"])
+        a = _find(seg, e["a"])
         if a < 0:
             return s, False
         if e.get("b"):
-            b = seg.find(e["b"], a)
+            b = _find(seg, e["b"], a)
             end = (b + len(e["b"])) if b >= 0 else len(seg)
         else:
             end = len(seg)
         rep = e.get("new", "")
         return put(re.sub(r"\s{2,}", " ", (_join_r(seg[:a] + rep, seg[end:]) if rep
                                            else seg[:a] + seg[end:])))
+    if op == "omitlast":
+        old = (e.get("old") or "").strip()
+        p = -1
+        q = _find(seg, old)
+        while q >= 0:
+            p = q
+            q = _find(seg, old, q + 1)
+        if p < 0:
+            return s, False
+        return put(re.sub(r"\s{2,}", " ", seg[:p] + seg[p + len(old):]))
     if op == "omitnear":
         sp = span_of(s, (e.get("chain") or []) + [e["tag"]], mk)
         a, b = (max(0, sp[0] - 60), min(len(s), sp[1] + 10)) if sp else (lo, hi)
@@ -610,13 +701,31 @@ def focus(text, sec, act_positions, limit=4000):
     return text[lo:max(hi, p + 400)]
 
 
+MULTI_ACT = 5
+RE_TABULAR = re.compile(r"Extent\s+of\s+(?:repeal|revocation|amendment)|\bColumn\s+1\b", re.I)
+
+
+def looks_tabular(text):
+    """A consequential-amendment / repeal table: entries are grouped under Act headings."""
+    return bool(RE_TABULAR.search(text[:6000]))
+
+
 def all_instructions(text, sec, act_positions, is_table):
-    """Edits from one provision: clause parsing, plus table parsing when it looks tabular."""
-    ins = [] if is_table else parse_instructions(text[:60000], sec)
-    if is_table or not ins:
-        ins = ins + parse_table(focus(text, sec, act_positions, 6000), sec)
-        if is_table and not ins:
-            ins = parse_instructions(focus(text, sec, act_positions, 6000), sec)
+    """Edits from one provision.
+
+    A provision that lists many Acts (a repeal or consequential-amendment table) must first be
+    narrowed to the stretch belonging to the queried Act, or every other Act's entries would be
+    read as amendments of this section.  A long provision that concerns a single Act is parsed
+    whole, because its clause structure already scopes each instruction.
+    """
+    body = text[:60000]
+    multi_act = len(set(m.group(0) for m in RE_ACTREF_ANY.finditer(body))) >= MULTI_ACT
+    win = focus(text, sec, act_positions, 6000) if (is_table or multi_act) else body
+    ins = parse_instructions(win, sec)
+    if not ins:
+        ins = parse_table(win, sec)
+    if not ins:
+        ins = parse_uprating(body, sec)
     return ins
 
 

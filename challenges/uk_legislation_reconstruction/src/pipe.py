@@ -4,8 +4,8 @@ import numpy as np
 sys.path.insert(0, '/home/user/Claude-/challenges/uk_legislation_reconstruction/src')
 from lib import norm
 from feats import FeatureBuilder, FEATS
-from apply import all_instructions, apply_one
-from gate import plan_rows, GFEATS
+from apply import all_instructions, apply_one, looks_tabular
+from gate import GFEATS, oracle_walk, model_walk
 import re
 
 
@@ -37,15 +37,16 @@ def retrieval_matrix(C, FB, queries):
             np.asarray(qi, dtype=np.int32), np.asarray(cu, dtype=np.int32))
 
 
-def build_plan(C, Q, rows, scores):
+def build_plan(C, Q, rows, scores, plan_thr=0.0):
     """Chronologically ordered instructions from the selected provisions, with context."""
     order = sorted(range(len(rows)), key=lambda k: (C.date[rows[k]], C.label[rows[k]]))
+    rank = {k: r for r, k in enumerate(sorted(range(len(rows)), key=lambda k: -scores[k]))}
     instr, ctxs = [], []
     for k in order:
         i = rows[k]
         t = C.text[i]
         ap = [p for c, p in C.arefs[i] if c == Q["acit"]]
-        tbl = ("Extent of repeal" in t) or ("Extent of revocation" in t)
+        tbl = looks_tabular(t)
         es = all_instructions(t, Q["sec"], ap, tbl)
         for j, e in enumerate(es):
             instr.append(e)
@@ -53,7 +54,8 @@ def build_plan(C, Q, rows, scores):
                              prov_tbl=1.0 if tbl else 0.0, prov_nins=float(len(es)),
                              prov_len=float(np.log1p(len(t))), ins_idx=float(j), ins_n=float(len(es)),
                              en_len=float(len(Q["en"].split())), n_prov=float(len(rows)),
-                             en_chars=float(len(Q["en"]))))
+                             en_chars=float(len(Q["en"])), prov_rank=float(rank[k]),
+                             plan_thr=float(plan_thr)))
     return instr, ctxs
 
 
@@ -65,9 +67,3 @@ def select_ids(C, p, uids, thr, min_one=True):
     return keep
 
 
-def apply_gated(enacted, instr, ctxs, gate_pred, thr):
-    s = enacted
-    for e, g in zip(instr, gate_pred):
-        if g >= thr:
-            s, _ = apply_one(s, e)
-    return re.sub(r"\s+", " ", s).strip()

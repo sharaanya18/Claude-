@@ -3,7 +3,7 @@ import re, sys, math, collections
 import numpy as np
 sys.path.insert(0, '/home/user/Claude-/challenges/uk_legislation_reconstruction/src')
 from lib import norm, parse_label, section_refs, RE_FULLCIT
-from apply import all_instructions, apply_one
+from apply import all_instructions, apply_one, looks_tabular
 
 RE_QUOTE = re.compile(r'"([^"]{1,400})"')
 RE_SUBST = re.compile(r'for\s+"([^"]{1,300})"[^"]{0,80}?substitut\w+\s+"([^"]{0,300})"', re.I)
@@ -70,7 +70,7 @@ class FeatureBuilder:
         v = self._pcache.get(key)
         if v is None:
             C = self.C; t = C.text[i]
-            tbl = ('Extent of repeal' in t) or ('Extent of revocation' in t)
+            tbl = looks_tabular(t)
             ap = [p for c, p in C.arefs[i] if c == Q['acit']]
             try:
                 ins = all_instructions(t, Q['sec'], ap, tbl)

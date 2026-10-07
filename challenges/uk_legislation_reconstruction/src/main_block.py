@@ -86,21 +86,33 @@ def build_rows(C, FB, queries):
     return add_rank_feats(X, qi, len(queries)), qi, cu
 
 
+def plan_at(C, Q, p, cols, thr):
+    """The provisions a given score threshold selects, as a chronological edit plan."""
+    o = np.argsort(-p, kind="stable")
+    sel = [j for j in o if p[j] >= thr]
+    if not sel and len(o):
+        sel = [o[0]]
+    return build_plan(C, Q, [int(cols[j]) for j in sel], [float(p[j]) for j in sel], thr)
+
+
 def gate_training_rows(C, queries, rows_meta, oof, qi, cu, truth):
-    """Walk each training query's plan once, labelling every parsed edit with the metric
-    gain it produced.  Plans are built from OUT-OF-FOLD retrieval scores so the gate is
-    trained on the same kind of (imperfect) provision sets it will see at inference."""
-    GX, GY, gq = [], [], []
+    """Teacher walks that train the gate.
+
+    For every training query the plan is walked once per plan width in PLAN_THRS; at each
+    edit the oracle keeps it iff the exact metric improves, and the row records the features
+    available at that moment.  Plans come from OUT-OF-FOLD retrieval scores, so the gate is
+    trained on the same kind of imperfect provision sets it meets at inference, and the
+    several widths both triple the data and teach it how plan width changes the decision.
+    """
+    GX, GY, gfold = [], [], []
     for k in range(len(queries)):
         m = qi == k
-        p = oof[m]; rr = cu[m]
-        o = np.argsort(-p, kind="stable")
-        sel = [j for j in o if p[j] >= RET_THR] or ([o[0]] if len(o) else [])
-        instr, ctxs = build_plan(C, queries[k], [int(rr[j]) for j in sel], [float(p[j]) for j in sel])
-        gx, gy, _ = plan_rows(queries[k]["en"], instr, ctxs, truth[rows_meta[k]][1])
-        GX += gx; GY += gy; gq += [k] * len(gx)
+        for thr in PLAN_THRS:
+            instr, ctxs = plan_at(C, queries[k], oof[m], cu[m], thr)
+            gx, gy, _, _ = oracle_walk(queries[k]["en"], instr, ctxs, truth[rows_meta[k]][1])
+            GX += gx; GY += gy; gfold += [k] * len(gx)
     X = np.asarray(GX, dtype=np.float32).reshape(-1, len(GFEATS))
-    return X, np.asarray(GY, dtype=np.float32), np.asarray(gq, dtype=np.int32)
+    return X, np.asarray(GY, dtype=np.int32), np.asarray(gfold, dtype=np.int32)
 
 
 def main():
@@ -153,11 +165,14 @@ def main():
 
     ret_models = fit_bagged(RET_PARAMS, Xtr, ytr, RET_ROUNDS)
 
-    # ---------- MODEL 2: edit gate, trained on metric gains measured from OOF plans ----------
+    # ---------- MODEL 2: edit gate, trained by imitation of the oracle walk ----------
     GX, GY, gq = gate_training_rows(C, tr_queries, tr_ids, oof, qitr, cutr, truth)
-    glab = (GY > 1e-9).astype(int)
-    log("gate matrix %s, %.3f of edits improve the metric" % (GX.shape, glab.mean()))
-    gate_models = fit_bagged(GATE_PARAMS, GX, glab, GATE_ROUNDS)
+    log("gate matrix %s, oracle keeps %.3f of parsed edits" % (GX.shape, GY.mean()))
+    gate_models = fit_bagged(GATE_PARAMS, GX, GY, GATE_ROUNDS)
+
+    def gate_predict(row):
+        a = np.asarray(row, dtype=np.float32).reshape(1, -1)
+        return float(np.mean([m.predict(a)[0] for m in gate_models]))
 
     # ---------- inference: one test row at a time ----------
     Xte, qite, cute = build_rows(C, FB, te_queries)
@@ -177,13 +192,16 @@ def main():
             rowsel = [int(cute[m[j]]) for j in sel]
             scores = [float(p[j]) for j in sel]
             ids = sorted(int(C.uid[i]) for i in rowsel)
+            # the plan may be built from a wider set than the id list: the two terms are
+            # scored separately and the gate can still veto a weak provision's edits
+            selp = [j for j in o if p[j] >= PLAN_THR] or [o[0]]
+            rowsel = [int(cute[m[j]]) for j in selp]
+            scores = [float(p[j]) for j in selp]
         else:
             rowsel, scores, ids = [], [], []
-        instr, ctxs = build_plan(C, Q, rowsel, scores)
+        instr, ctxs = build_plan(C, Q, rowsel, scores, PLAN_THR)
         if instr:
-            gx, _, _ = plan_rows(Q["en"], instr, ctxs, None)
-            gp = predict_bagged(gate_models, np.asarray(gx, dtype=np.float32).reshape(-1, len(GFEATS)))
-            txt = apply_gated(Q["en"], instr, ctxs, gp, GATE_THR)
+            _, _, txt = model_walk(Q["en"], instr, ctxs, gate_predict, GATE_THR)
         else:
             txt = Q["en"]
         # a prediction must never be empty: an empty cell reloads as NaN and fails the check
