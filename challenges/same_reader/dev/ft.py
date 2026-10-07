@@ -48,4 +48,4 @@ for ep in range(EPOCHS):
         loss=lossf(m(I,Mk,A,B,C),ya[idx]); opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(m.parameters(),1.0); opt.step(); sch.step(); tl+=loss.item()
         if k%50==0: print(f'  ep{ep} step{k} loss{tl/(k+1):.4f} t{time.time()-t0:.0f}',flush=True)
     p=predict(m,Xb); print(f'EPOCH {ep} fold{fold} AP {AP(y[b],p):.4f} t{time.time()-t0:.0f}',flush=True)
-    np.save(f"dev/ft2_{name.split(chr(47))[-1]}_f{fold}_e{ep}.npy",p)
+    np.save(f"dev/ft3_{name.split(chr(47))[-1]}_f{fold}_e{ep}.npy",p)
