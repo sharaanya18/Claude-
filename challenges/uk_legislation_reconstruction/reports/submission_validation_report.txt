@@ -1,35 +1,41 @@
-SUBMISSION VALIDATION REPORT
-============================
-command        python3 solution.py ./dataset/public ./working/run1/submission.csv
+SUBMISSION VALIDATION REPORT  (v2 - final)
+==========================================
+command        python3 solution.py ./dataset/public ./working/final/submission.csv
 exit code      0
-wall time      202 s  (target <= 50 min; ~93% headroom)
-peak behaviour single process, CPU only, no GPU, no network
+wall time      837 s  (earlier clean-box run of the same pipeline: 202 s; this run shared
+               4 cores with other jobs. Both are inside the 50-min target, but the gate's
+               teacher walks made the pipeline ~3x heavier than v1 - recheck on a clean box.)
+resources      single process, CPU only, no GPU, no network, no cached artefacts
 
 FILE
-  path            working/run1/submission.csv
-  size            2,905,775 bytes
+  path            submissions/submission_v2.csv  (= working/final/submission.csv)
+  size            2,872,489 bytes
   shape           (1177, 3)
-  columns         item_id, amending_ids, text_at_date      (identical to sample_submission.csv)
-  row count       1177 == sample_submission.csv
-  item_id         identical values in identical order; no duplicates
+  columns         item_id, amending_ids, text_at_date     (identical to sample_submission.csv)
+  id order        identical to sample_submission.csv and to test.csv; no duplicates
   NaN / empty     none in either prediction column (reloaded with keep_default_na=False)
   amending_ids    every cell parses as a JSON list of ints; every id exists in corpus.csv
-  text_at_date    every cell non-empty
-  content check   1056 / 1177 rows carry an edited text (121 unchanged where no edit was accepted)
-                  mean ids per row 2.56  (training mean 2.93)
+  content         1023 / 1177 rows carry an edited text; mean 2.53 ids per row
+                  (training mean 2.93)
 
-ASSERTED IN-SCRIPT BEFORE WRITING
-  columns / order / names, row count, id identity and order, no duplicate ids,
-  no NaN, no empty strings, amending_ids is a JSON list of ints.
-  The file is then re-read from disk and re-validated.
+CHECKS
+  in-script validate_submission() before writing, and again on the reloaded file
+  .claude/scripts/validate_submission.py  -> PASS (1177 rows, 3 columns)
+  .claude/scripts/compliance_scan.py      -> 0 errors, 0 warnings
 
-DETERMINISM
-  two full runs from a clean working directory, byte-identical outputs: see
-  reports/determinism_report.txt
+LOCAL SCORE (Act-grouped 5-fold CV, not a leaderboard result)
+  total 61.5  =  0.40 x id F1 81.5  +  0.60 x text edit F1 48.2
+  in-script OOF id F1 on this run: 0.8126
+  sample_submission baseline: 0.0 on both terms
+
+NOT ESTABLISHED
+  - Two-run byte-identity determinism. Both attempts were killed by CPU contention in this
+    sandbox; working/det.log is empty. The index stage was verified stable across five
+    independent processes with different hash seeds (284,868 keys / 730,428 postings each),
+    but the end-to-end pair has not been run. Do this before spending a credit.
+  - Any public/private leaderboard score. The 61.5 above is local CV only.
 
 EDGE CASES
-  Zero-candidate queries: 0 of 512 train, 2 of 1,177 test (both Energy Act 2004, s. 52 and
-  s. 59). No corpus provision links to those sections through any of the five act-resolution
-  mechanisms, and a numeric-only key finds nothing either, so no fallback would be better
-  than a guess. Those two rows get an empty id list and the enacted text, costing at most
-  0.17 points of the final score. The code path is explicit and safe (no crash, no NaN).
+  2 of 1,177 test queries (Energy Act 2004, ss. 52 and 59) retrieve no candidate at all
+  through any of the five act-resolution mechanisms; they emit [] and the enacted text,
+  costing at most 0.17 points. The code path is explicit and cannot crash or emit NaN.
