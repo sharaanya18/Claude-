@@ -106,7 +106,7 @@ Recording these because they are the bulk of the search and they constrain what 
 |---|---|
 | LSA / supervised low-rank CCA | Worse than raw cosine (§3) |
 | Sparse→dense learned dual encoder | 0.4393 — overfits instantly, sketch destroys the signal |
-| Character CNN dual encoder (CPU) | 0.4099 undertrained; robust to noise but weak absolutely |
+| Character CNN dual encoder | **Settled on a T4 GPU, 12k steps**: 0.4351 alone; blended with the lexical score 0.2938 vs 0.2981 lexical alone, i.e. ~0.004 — within fold noise. A properly trained from-scratch character encoder does **not** carry independent signal on this data. |
 | Within-pool rarity weighting | 0.3037 vs 0.3045 — no gain; global idf already captures it |
 | Per-family score fusion | 0.3005 vs 0.3030 — within noise |
 | idf exponent sweep | α = 1.0 (standard idf²) already optimal |
@@ -114,6 +114,17 @@ Recording these because they are the bulk of the search and they constrain what 
 | Hand-built fuzzy token matcher | 0.354 — no better than TF-IDF |
 
 The pattern is consistent: **representation moved the number, machinery did not.**
+
+## 6a. A leak caught in the final run (worth recording)
+
+The first full run reported **0.0212** on held-out abstracts — impossibly good against a
+measured ~0.30. Cause: the within-pool rank feature used `argsort`, which breaks ties by
+position, and training pools are built with the true candidate at column 0. The model learned
+"take column 0" and would have produced a worthless submission that still looked excellent in
+validation. Fixed two ways: the rank feature is now computed as (#strictly greater + half the
+ties), which is tie-safe and order-independent, and every training/validation pool is randomly
+permuted with its label tracked. The same class of bug (ties resolved by position) had already
+appeared once, in the metric itself, early in the work.
 
 ## 7. Compliance
 
@@ -139,7 +150,12 @@ the mechanism that closes that gap.
 The largest untested lever is a **from-scratch character denoiser**: the measured noise curve
 says the 20 %→30 % shift is worth ~0.045, so a model that uses context to undo part of the extra
 corruption should be worth materially more than any re-weighting. That experiment was launched
-on GPU but had not returned in time; it is the first thing to finish.
+on GPU and had not returned when time ran out; it is the first thing to finish.
+
+A second finding from the GPU run is negative but useful: a character encoder trained properly
+(T4, 12 000 steps, four capacities) tops out at 0.435 alone and adds ~0.004 in a blend. The
+deep-encoder branch of the search is closed. What remains is denoising, i.e. attacking the
+corruption itself rather than tolerating it.
 
 Risks: (a) the ranker's gain (~0.007) is close to fold noise and may shrink; (b) the proxy's
 ~0.010 pessimism is estimated from one published reference point; (c) the top-5 competitors are

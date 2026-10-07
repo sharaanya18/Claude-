@@ -74,8 +74,8 @@ SEED        = 42
 DEVICE      = torch.device("cpu")   # the ranker is tiny; one fixed device, never probed
 POOL        = 20                    # candidates per query, fixed by the task
 N_FOLDS     = 5                     # abstract-level folds -> 5 ranker instances
-N_SEEDS     = 3                     # independent inits per fold, rank-averaged
-EPOCHS      = 60                    # upper bound; early stopping is on a validation metric
+N_SEEDS     = 2                     # independent inits per fold, rank-averaged
+EPOCHS      = 40                    # upper bound; early stopping is on a validation metric
 EVAL_EVERY  = 3
 BATCH       = 64
 LR          = 2e-3
@@ -83,8 +83,8 @@ WD          = 1e-2
 HID         = 48
 DEPTH       = 2
 DROP        = 0.3
-N_AUG       = 4                     # corruption levels used for training views
-N_POOLSAMP  = 3                     # independent same-subfield negative draws per level
+N_AUG       = 3                     # corruption levels used for training views
+N_POOLSAMP  = 2                     # independent same-subfield negative draws per level
 AUG_MIN     = 0.20                  # the training snippets' own noise level
 AUG_MAX     = 0.42                  # past the stated 30% evaluation level, for robustness
 TRAIN_NOISE = 0.20                  # stated in the description
@@ -324,8 +324,13 @@ def featurise(Fp, mu, sd):
     z = np.log1p(np.abs(Fp) * 100.0) * np.sign(Fp)
     pm = z.mean(-2, keepdims=True)
     ps = z.std(-2, keepdims=True) + 1e-6
-    o = np.argsort(np.argsort(z, -2), -2).astype(np.float32) / (z.shape[-2] - 1.0) - 0.5
-    return np.concatenate([(z - mu) / sd, (z - pm) / ps, o], -1).astype(np.float32)
+    # Within-pool rank as (#strictly greater + half the ties): tie-safe and independent of the
+    # order the pool happens to be in. An argsort here would break ties by POSITION, which
+    # leaks the pool's construction order (the true candidate is placed first) into a feature.
+    a = z[..., :, None, :]
+    b = z[..., None, :, :]
+    o = ((a < b).sum(-2) + 0.5 * (a == b).sum(-2) - 0.5) / (z.shape[-2] - 1.0) - 0.5
+    return np.concatenate([(z - mu) / sd, (z - pm) / ps, o.astype(np.float32)], -1).astype(np.float32)
 
 
 # ------------------------------------------------------------------ the trained ranker
@@ -405,12 +410,27 @@ def sample_pools(idx, sub, seed, n_cand=POOL):
     return P
 
 
-def pool_score(S):
+def shuffle_pools(F, seed):
+    """Scramble the candidate order of every pool and return the new index of the true one.
+    Training pools are built with the answer first; leaving it there would let any
+    position-sensitive feature give the answer away. Evaluation pools are already in random
+    order, so the model must never rely on position."""
+    rng = np.random.default_rng(seed)
+    out = np.empty_like(F)
+    lab = np.empty(F.shape[0], dtype=np.int64)
+    for i in range(F.shape[0]):
+        p = rng.permutation(F.shape[1])
+        out[i] = F[i, p]
+        lab[i] = int(np.where(p == 0)[0][0])
+    return out, lab
+
+
+def pool_score(S, lab):
     """Official metric on a score matrix whose column 0 is the true continuation, with ties
     resolved by their exact expectation under a random tie-break."""
-    s0 = S[:, :1]
-    greater = (S[:, 1:] > s0).sum(1)
-    equal = (S[:, 1:] == s0).sum(1)
+    s0 = S[np.arange(len(S)), lab][:, None]
+    greater = (S > s0).sum(1)
+    equal = (S == s0).sum(1) - 1
     return float((greater + 0.5 * equal).mean() / (S.shape[1] - 1.0))
 
 
@@ -481,6 +501,9 @@ def main():
     MU = zz.reshape(-1, zz.shape[-1]).mean(0)
     SD = zz.reshape(-1, zz.shape[-1]).std(0) + 1e-6
     X = featurise(V, MU, SD)
+    XL = np.empty(X.shape[:2], dtype=np.int64)
+    for v in range(X.shape[0]):
+        X[v], XL[v] = shuffle_pools(X[v], SEED + 61 * v)
     log(f"training tensor {X.shape}; features {FEATURE_NAMES}")
 
     # ---- evaluation features: the SAME transforms, applied (never fitted) to evaluation text
@@ -497,6 +520,7 @@ def main():
     #      its own held-out abstracts. Fold membership is data-determined, never clock-driven.
     fold = stratified_folds(sub, N_FOLDS, SEED)
     Xt = torch.from_numpy(X)
+    XLt = torch.from_numpy(XL)
     test_ranks = np.zeros((len(te_ids), POOL), dtype=np.float64)
     cv_scores = []
     for f in range(N_FOLDS):
@@ -511,7 +535,8 @@ def main():
         qq = extra_rate(TRAIN_NOISE, EVAL_NOISE)
         Vq_v = bank.vectors(corrupt([A[i] for i in va_i], qq, rv))
         Vc_v = bank.vectors(corrupt([B[i] for i in va_i], qq, rv))
-        Xva = torch.from_numpy(featurise(profiles(bank, Vq_v, Vc_v, vpl), MU, SD))
+        Fva, lab_va = shuffle_pools(featurise(profiles(bank, Vq_v, Vc_v, vpl), MU, SD), SEED + f)
+        Xva = torch.from_numpy(Fva)
         for s in range(N_SEEDS):
             torch.manual_seed(SEED + 13 * f + s)
             net = ListwiseRanker(X.shape[-1]).to(DEVICE)
@@ -527,12 +552,12 @@ def main():
                     qsel = torch.from_numpy(rg.choice(tr_i, size=BATCH, replace=False))
                     vsel = torch.from_numpy(rg.integers(0, X.shape[0], size=BATCH))
                     sc = net(Xt[vsel, qsel])
-                    loss = F.cross_entropy(sc, torch.zeros(BATCH, dtype=torch.long))
+                    loss = F.cross_entropy(sc, XLt[vsel, qsel])
                     opt.zero_grad(); loss.backward(); opt.step(); sch.step()
                 if (ep + 1) % EVAL_EVERY == 0:
                     net.eval()
                     with torch.no_grad():
-                        v = pool_score(net(Xva).numpy())
+                        v = pool_score(net(Xva).numpy(), lab_va)
                     if v < best:                       # early stopping on a validation METRIC
                         best = v
                         best_state = {k: t.clone() for k, t in net.state_dict().items()}

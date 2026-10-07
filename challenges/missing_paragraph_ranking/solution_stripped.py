@@ -17,8 +17,8 @@ SEED = 42
 DEVICE = torch.device('cpu')
 POOL = 20
 N_FOLDS = 5
-N_SEEDS = 3
-EPOCHS = 60
+N_SEEDS = 2
+EPOCHS = 40
 EVAL_EVERY = 3
 BATCH = 64
 LR = 0.002
@@ -26,8 +26,8 @@ WD = 0.01
 HID = 48
 DEPTH = 2
 DROP = 0.3
-N_AUG = 4
-N_POOLSAMP = 3
+N_AUG = 3
+N_POOLSAMP = 2
 AUG_MIN = 0.2
 AUG_MAX = 0.42
 TRAIN_NOISE = 0.2
@@ -223,8 +223,10 @@ def featurise(Fp, mu, sd):
     z = np.log1p(np.abs(Fp) * 100.0) * np.sign(Fp)
     pm = z.mean(-2, keepdims=True)
     ps = z.std(-2, keepdims=True) + 1e-06
-    o = np.argsort(np.argsort(z, -2), -2).astype(np.float32) / (z.shape[-2] - 1.0) - 0.5
-    return np.concatenate([(z - mu) / sd, (z - pm) / ps, o], -1).astype(np.float32)
+    a = z[..., :, None, :]
+    b = z[..., None, :, :]
+    o = ((a < b).sum(-2) + 0.5 * (a == b).sum(-2) - 0.5) / (z.shape[-2] - 1.0) - 0.5
+    return np.concatenate([(z - mu) / sd, (z - pm) / ps, o.astype(np.float32)], -1).astype(np.float32)
 
 class ListwiseRanker(nn.Module):
 
@@ -286,10 +288,20 @@ def sample_pools(idx, sub, seed, n_cand=POOL):
         P[r, 1:] = rng.choice(pop, size=n_cand - 1, replace=False)
     return P
 
-def pool_score(S):
-    s0 = S[:, :1]
-    greater = (S[:, 1:] > s0).sum(1)
-    equal = (S[:, 1:] == s0).sum(1)
+def shuffle_pools(F, seed):
+    rng = np.random.default_rng(seed)
+    out = np.empty_like(F)
+    lab = np.empty(F.shape[0], dtype=np.int64)
+    for i in range(F.shape[0]):
+        p = rng.permutation(F.shape[1])
+        out[i] = F[i, p]
+        lab[i] = int(np.where(p == 0)[0][0])
+    return (out, lab)
+
+def pool_score(S, lab):
+    s0 = S[np.arange(len(S)), lab][:, None]
+    greater = (S > s0).sum(1)
+    equal = (S == s0).sum(1) - 1
     return float((greater + 0.5 * equal).mean() / (S.shape[1] - 1.0))
 
 def validate_submission(sub, sample_path, pools_of):
@@ -349,6 +361,9 @@ def main():
     MU = zz.reshape(-1, zz.shape[-1]).mean(0)
     SD = zz.reshape(-1, zz.shape[-1]).std(0) + 1e-06
     X = featurise(V, MU, SD)
+    XL = np.empty(X.shape[:2], dtype=np.int64)
+    for v in range(X.shape[0]):
+        X[v], XL[v] = shuffle_pools(X[v], SEED + 61 * v)
     log(f'training tensor {X.shape}; features {FEATURE_NAMES}')
     te_ids = list(test.query_id)
     te_cand_ids = sorted({c for v in te_pools.values() for c in v})
@@ -360,6 +375,7 @@ def main():
     log(f'evaluation tensor {tuple(X_te.shape)}')
     fold = stratified_folds(sub, N_FOLDS, SEED)
     Xt = torch.from_numpy(X)
+    XLt = torch.from_numpy(XL)
     test_ranks = np.zeros((len(te_ids), POOL), dtype=np.float64)
     cv_scores = []
     for f in range(N_FOLDS):
@@ -372,7 +388,8 @@ def main():
         qq = extra_rate(TRAIN_NOISE, EVAL_NOISE)
         Vq_v = bank.vectors(corrupt([A[i] for i in va_i], qq, rv))
         Vc_v = bank.vectors(corrupt([B[i] for i in va_i], qq, rv))
-        Xva = torch.from_numpy(featurise(profiles(bank, Vq_v, Vc_v, vpl), MU, SD))
+        Fva, lab_va = shuffle_pools(featurise(profiles(bank, Vq_v, Vc_v, vpl), MU, SD), SEED + f)
+        Xva = torch.from_numpy(Fva)
         for s in range(N_SEEDS):
             torch.manual_seed(SEED + 13 * f + s)
             net = ListwiseRanker(X.shape[-1]).to(DEVICE)
@@ -387,7 +404,7 @@ def main():
                     qsel = torch.from_numpy(rg.choice(tr_i, size=BATCH, replace=False))
                     vsel = torch.from_numpy(rg.integers(0, X.shape[0], size=BATCH))
                     sc = net(Xt[vsel, qsel])
-                    loss = F.cross_entropy(sc, torch.zeros(BATCH, dtype=torch.long))
+                    loss = F.cross_entropy(sc, XLt[vsel, qsel])
                     opt.zero_grad()
                     loss.backward()
                     opt.step()
@@ -395,7 +412,7 @@ def main():
                 if (ep + 1) % EVAL_EVERY == 0:
                     net.eval()
                     with torch.no_grad():
-                        v = pool_score(net(Xva).numpy())
+                        v = pool_score(net(Xva).numpy(), lab_va)
                     if v < best:
                         best = v
                         best_state = {k: t.clone() for k, t in net.state_dict().items()}
