@@ -6,7 +6,7 @@ tr,te=S.load_data(); y=tr.p_same_reader.values.astype(int); folds=S.make_folds(t
 emo=sorted(set(tr.emotion_a)|set(tr.emotion_b)); E=np.load('dev/emb_all-MiniLM-L6-v2_tr.npy'); E/=np.linalg.norm(E,axis=1,keepdims=True)
 oof={n:np.zeros(len(tr)) for n in ['tfidf_lr','emb_lr','lgbm']}
 for a,b in folds:
-    oof['tfidf_lr'][b]=S.fit_predict_tfidf(tr.iloc[a],y[a],tr.iloc[b])
+    oof['tfidf_lr'][b]=S.fit_predict_tfidf(tr.iloc[a],y[a],[tr.iloc[b]])[0]
     oof['emb_lr'][b]=S.fit_predict_emb(tr.iloc[a],y[a],tr.iloc[b],E[a],E[b])
     p=S.fit_predict_lgb(tr.iloc[a],y[a],tr.iloc[b],emo); oof['lgbm'][b]=np.log(p/(1-p))
 for n,v in oof.items(): print(n,np.mean([AP(y[b],v[b]) for _,b in folds]).round(4), round(AP(y,v),4))

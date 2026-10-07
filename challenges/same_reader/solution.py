@@ -119,13 +119,14 @@ def cat_frame(df):
 
 
 # ----------------------------- member 1: one-hot + TF-IDF logistic regression -----------------------------
-def fit_predict_tfidf(tr_df, tr_y, te_df):
+def fit_predict_tfidf(tr_df, tr_y, eval_dfs):
+    """Fit on the train rows only; return one score vector per frame in eval_dfs."""
     enc = OneHotEncoder(handle_unknown="ignore")
     vec = TfidfVectorizer(ngram_range=(1, 2), min_df=2, sublinear_tf=True)
     x_tr = hstack([enc.fit_transform(cat_frame(tr_df)), vec.fit_transform(tr_df["text"].astype(str))]).tocsr()
-    x_te = hstack([enc.transform(cat_frame(te_df)), vec.transform(te_df["text"].astype(str))]).tocsr()
     clf = LogisticRegression(C=TFIDF_C, max_iter=3000, random_state=SEED).fit(x_tr, tr_y)
-    return clf.decision_function(x_te)
+    return [clf.decision_function(hstack([enc.transform(cat_frame(d)), vec.transform(d["text"].astype(str))]).tocsr())
+            for d in eval_dfs]
 
 
 # ----------------------------- member 2: one-hot + frozen sentence embedding LR -----------------------------
@@ -144,12 +145,13 @@ def embed_texts(texts, tok, enc_model, batch=64):
     return out / np.linalg.norm(out, axis=1, keepdims=True)
 
 
-def fit_predict_emb(tr_df, tr_y, te_df, emb_tr, emb_te):
+def fit_predict_emb(tr_df, tr_y, emb_tr, eval_sets):
+    """eval_sets: list of (frame, embeddings); fit on train rows only."""
     enc = OneHotEncoder(handle_unknown="ignore")
     x_tr = hstack([enc.fit_transform(cat_frame(tr_df)), csr_matrix(EMB_W * emb_tr)]).tocsr()
-    x_te = hstack([enc.transform(cat_frame(te_df)), csr_matrix(EMB_W * emb_te)]).tocsr()
     clf = LogisticRegression(C=EMB_C, max_iter=3000, random_state=SEED).fit(x_tr, tr_y)
-    return clf.decision_function(x_te)
+    return [clf.decision_function(hstack([enc.transform(cat_frame(d)), csr_matrix(EMB_W * e)]).tocsr())
+            for d, e in eval_sets]
 
 
 # ----------------------------- member 3: LightGBM on structured + text-shape features -----------------------------
@@ -171,13 +173,17 @@ def lgb_features(df, emotions):
     return X
 
 
-def fit_predict_lgb(tr_df, tr_y, te_df, emotions):
+def fit_predict_lgb(tr_df, tr_y, eval_dfs, emotions):
     model = lgb.LGBMClassifier(
         learning_rate=0.03, num_leaves=8, min_child_samples=40, subsample=0.8, subsample_freq=1,
         colsample_bytree=0.7, reg_lambda=5, cat_smooth=20, min_data_per_group=40, cat_l2=10,
         n_estimators=LGB_ROUNDS, random_state=SEED, deterministic=True, force_row_wise=True, n_jobs=NUM_THREADS, verbose=-1)
     model.fit(lgb_features(tr_df, emotions), tr_y)
-    return model.predict_proba(lgb_features(te_df, emotions))[:, 1]
+    out = []
+    for d in eval_dfs:
+        p = model.predict_proba(lgb_features(d, emotions))[:, 1]
+        out.append(np.log(p / (1 - p)))
+    return out
 
 
 # ----------------------------- member 4: fine-tuned transformer with emotion/rater embeddings -----------------------------
@@ -311,16 +317,13 @@ def main():
 
     for f, (a, b) in enumerate(folds):
         tr_df, va_df = train.iloc[a], train.iloc[b]
-        # members 1-3: score the held-out fold and the test set from the same fit
-        both = pd.concat([va_df, test], ignore_index=True)
-        n_va = len(va_df)
-        s = fit_predict_tfidf(tr_df, y[a], both)
-        oof["tfidf_lr"][b], tst["tfidf_lr"] = s[:n_va], tst["tfidf_lr"] + s[n_va:] / N_FOLDS
-        s = fit_predict_emb(tr_df, y[a], both, emb_tr[a], np.vstack([emb_tr[b], emb_te]))
-        oof["emb_lr"][b], tst["emb_lr"] = s[:n_va], tst["emb_lr"] + s[n_va:] / N_FOLDS
-        s = fit_predict_lgb(tr_df, y[a], both, emotions)
-        s = np.log(s / (1 - s))
-        oof["lgbm"][b], tst["lgbm"] = s[:n_va], tst["lgbm"] + s[n_va:] / N_FOLDS
+        # members 1-3: fit on the fold's train rows, score the held-out fold and the test set separately
+        for n, (s_va, s_te) in (
+                ("tfidf_lr", fit_predict_tfidf(tr_df, y[a], [va_df, test])),
+                ("emb_lr", fit_predict_emb(tr_df, y[a], emb_tr[a], [(va_df, emb_tr[b]), (test, emb_te)])),
+                ("lgbm", fit_predict_lgb(tr_df, y[a], [va_df, test], emotions))):
+            oof[n][b] = s_va
+            tst[n] += s_te / N_FOLDS
         # member 4: fine-tuned transformer, several seeds
         for seed in FT_SEEDS:
             lo_va, lo_te = fine_tune_fold(sub_x(X_all, a), y[a], [sub_x(X_all, b), X_test], tok_f, len(emotions), seed)
