@@ -138,12 +138,17 @@ def main():
         m = fq[qitr] != f
         oof[~m] = predict_bagged(fit_bagged(RET_PARAMS, Xtr[m], ytr[m], RET_ROUNDS), Xtr[~m])
     # honest in-script report of the retrieval term on held-out Acts
-    oof_f1 = np.mean([
-        f1({int(C.uid[cutr[j]]) for j in np.where(qitr == k)[0]
-            if oof[j] >= RET_THR} or {int(C.uid[cutr[np.where(qitr == k)[0][
-                int(np.argmax(oof[qitr == k]))]]])},
-           {int(x) for x in truth[tr_ids[k]][0]})
-        for k in range(len(tr_queries)) if (qitr == k).any()])
+    def selected_uids(p, cols):
+        keep = [int(C.uid[cols[j]]) for j in range(len(p)) if p[j] >= RET_THR]
+        if not keep and len(p):
+            keep = [int(C.uid[cols[int(np.argmax(p))]])]
+        return set(keep)
+
+    fold_f1 = []
+    for k in range(len(tr_queries)):
+        m = np.where(qitr == k)[0]
+        fold_f1.append(f1(selected_uids(oof[m], cutr[m]), {int(x) for x in truth[tr_ids[k]][0]}))
+    oof_f1 = float(np.mean(fold_f1))
     log("Act-grouped OOF amending_ids F1 = %.4f" % oof_f1)
 
     ret_models = fit_bagged(RET_PARAMS, Xtr, ytr, RET_ROUNDS)
