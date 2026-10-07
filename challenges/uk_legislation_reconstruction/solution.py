@@ -84,9 +84,9 @@ N_FOLDS = 5                # folds are grouped by Act, mirroring the hidden spli
 RET_ROUNDS = 400           # fixed boosting rounds (no early stopping on the clock)
 GATE_ROUNDS = 300
 RET_THR = 0.25             # id-list threshold, chosen on Act-grouped OOF (flat 0.20-0.30)
-PLAN_THR = 0.25            # width of the reconstruction plan, chosen on Act-grouped OOF
+PLAN_THR = 0.20            # width of the reconstruction plan, chosen on Act-grouped OOF
 PLAN_THRS = (0.35, 0.20, 0.10)   # plan widths the gate is trained over, so width is a feature
-GATE_THR = 0.45            # edit-gate threshold, chosen on Act-grouped OOF
+GATE_THR = 0.30            # edit-gate threshold, chosen on Act-grouped OOF
 NUM_THREADS = 4
 T0 = time.time()
 
@@ -1515,6 +1515,22 @@ def retrieval_matrix(C, FB, queries):
             np.asarray(qi, dtype=np.int32), np.asarray(cu, dtype=np.int32))
 
 
+_INSTR_CACHE = {}
+
+
+def instructions_for(C, Q, i):
+    """Parsed edits of corpus provision `i` for this query's act and section (memoised:
+    the same provision is parsed again for every plan width and every CV pass)."""
+    key = (i, Q["sec"], Q["acit"])
+    v = _INSTR_CACHE.get(key)
+    if v is None:
+        t = C.text[i]
+        ap = [p for c, p in C.arefs[i] if c == Q["acit"]]
+        v = (all_instructions(t, Q["sec"], ap, looks_tabular(t)), looks_tabular(t), len(t))
+        _INSTR_CACHE[key] = v
+    return v
+
+
 def build_plan(C, Q, rows, scores, plan_thr=0.0):
     """Chronologically ordered instructions from the selected provisions, with context."""
     order = sorted(range(len(rows)), key=lambda k: (C.date[rows[k]], C.label[rows[k]]))
@@ -1522,15 +1538,12 @@ def build_plan(C, Q, rows, scores, plan_thr=0.0):
     instr, ctxs = [], []
     for k in order:
         i = rows[k]
-        t = C.text[i]
-        ap = [p for c, p in C.arefs[i] if c == Q["acit"]]
-        tbl = looks_tabular(t)
-        es = all_instructions(t, Q["sec"], ap, tbl)
+        es, tbl, tlen = instructions_for(C, Q, i)
         for j, e in enumerate(es):
             instr.append(e)
             ctxs.append(dict(prov_score=float(scores[k]), prov_days=min(20000.0, Q["qd"] - C.dnum[i]),
                              prov_tbl=1.0 if tbl else 0.0, prov_nins=float(len(es)),
-                             prov_len=float(np.log1p(len(t))), ins_idx=float(j), ins_n=float(len(es)),
+                             prov_len=float(np.log1p(tlen)), ins_idx=float(j), ins_n=float(len(es)),
                              en_len=float(len(Q["en"].split())), n_prov=float(len(rows)),
                              en_chars=float(len(Q["en"])), prov_rank=float(rank[k]),
                              plan_thr=float(plan_thr)))
