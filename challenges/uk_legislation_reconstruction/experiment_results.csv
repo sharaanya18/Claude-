@@ -1,0 +1,23 @@
+id,change,stage,metric,value,note
+E00,sample_submission (no ids; enacted text),baseline,total,0.00,"verified with local metric: both terms exactly 0"
+E01,"(act,section) inverted index, positional act pairing",candidates,gold_recall,0.9288,"16.6 candidates/query"
+E02,"+ abbreviations and 'the YYYY Act' in context; relaxed schedule declaration; unit-dominant acts",candidates,gold_recall,0.9757,"18.5 candidates/query; 94.3% of queries have all golds"
+E03,"LightGBM reranker, 48 features, Act-grouped 5-fold",retrieval,id_F1,0.8096,"threshold 0.25 on OOF"
+E04,"+ parser-derived features (edits found/applied/size) and within-query rank features; 2 seeds",retrieval,id_F1,0.8140,"p_napp becomes the 2nd strongest feature; within CV noise (se 0.017) but mechanically motivated - kept"
+E05,"+ document commencement features (own in-force dates, 'two months', 'appointed day')",retrieval,id_F1,0.8121,"REVERTED - no gain; corpus holds only 6 commencement instruments"
+E06,"expected-F1 selection instead of a fixed threshold",retrieval,id_F1,0.8054,"REVERTED - fixed threshold 0.25 better; 0.20-0.30 plateau is flat"
+E10,"first amendment parser (substitute/insert/omit/sub-provision ops)",text,edit_F1,0.3877,"oracle ids; 23% of queries score 0"
+E11,"sequence-aware sub-provision marker detection",text,edit_F1,0.3831,"markers after commas now found - no score move on its own, but required for later fixes"
+E12,"repeal-table parser, definition ops, words-from-to, full-text clause parsing",text,edit_F1,0.3867,
+E13,"punctuation-aware joining; keep the inserted text's own terminator; wider 'every place' vocabulary",text,edit_F1,0.4415,"largest single text gain (+0.055)"
+E14,"word-boundary anchor matching; unwrap quoted operands; skip clauses naming another section",text,edit_F1,0.4700,"precision 0.33 -> 0.46"
+E15,"table word-lists, 'omit sections A and B' with chains, substitution lists over enactments",text,edit_F1,0.4799,
+E16,"clause splitting on raw candidates + guard against empty replacement content",text,edit_F1,0.4631,"fixes whole-subsection deletions caused by empty parses"
+E17,"metric reading: insertion edits keyed by (position, token)",text,edit_F1,0.4905,"same engine; the stricter (position, offset, token) reading gives 0.4631 - decisions agree under both"
+E18,"other-section clause filter demoted to a gate feature",text,edit_F1,0.4965,"zero-scoring queries 23.8% -> 18.8%; oracle-gate ceiling rises to 0.5606"
+E19,"retry pass for unapplied instructions",text,edit_F1,0.4890,"REVERTED - recovers nothing; failures are real anchor misses"
+E20,"edit gate: LightGBM regression on incremental metric gain",end-to-end,total,58.74,"no gain over applying everything (59.04)"
+E21,"edit gate: LightGBM classifier on gain>0, richer features",end-to-end,total,61.02,"id 81.28 / text 47.52 at gate threshold 0.20; all-apply = 60.41"
+E22,"retrieval ensemble: second LightGBM config (extra_trees, 63 leaves, lr 0.03) averaged in",retrieval,id_F1,0.8041,"REVERTED - base alone 0.8090 on the same folds"
+E23,"retrieval with 800 boosting rounds instead of 400",retrieval,id_F1,0.8074,"REVERTED - no gain; 400 kept"
+E24,"determinism: total sort keys for act references, sorted posting lists and index pairs, sorted float sum for idf_ov, stable argsorts",engineering,byte_identical,1.0,"two runs differed in the index (284868 vs 284869 keys) before this; set iteration order under hash randomisation was reaching the output"

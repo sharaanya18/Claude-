@@ -1,0 +1,28 @@
+SUBMISSION VALIDATION REPORT
+============================
+command        python3 solution.py ./dataset/public ./working/run1/submission.csv
+exit code      0
+wall time      202 s  (target <= 50 min; ~93% headroom)
+peak behaviour single process, CPU only, no GPU, no network
+
+FILE
+  path            working/run1/submission.csv
+  size            2,905,775 bytes
+  shape           (1177, 3)
+  columns         item_id, amending_ids, text_at_date      (identical to sample_submission.csv)
+  row count       1177 == sample_submission.csv
+  item_id         identical values in identical order; no duplicates
+  NaN / empty     none in either prediction column (reloaded with keep_default_na=False)
+  amending_ids    every cell parses as a JSON list of ints; every id exists in corpus.csv
+  text_at_date    every cell non-empty
+  content check   1056 / 1177 rows carry an edited text (121 unchanged where no edit was accepted)
+                  mean ids per row 2.56  (training mean 2.93)
+
+ASSERTED IN-SCRIPT BEFORE WRITING
+  columns / order / names, row count, id identity and order, no duplicate ids,
+  no NaN, no empty strings, amending_ids is a JSON list of ints.
+  The file is then re-read from disk and re-validated.
+
+DETERMINISM
+  two full runs from a clean working directory, byte-identical outputs: see
+  reports/determinism_report.txt
