@@ -1,7 +1,7 @@
 # Challenge notes: assembly_amendments
 
 ## Status
-- [x] contract  - [x] data audit  - [x] strategist plan  - [ ] validation  - [ ] baseline  - [ ] experiments
+- [x] contract  - [x] data audit  - [x] strategist plan  - [x] validation  - [ ] baseline  - [ ] experiments
 - [ ] review (compliance, runtime, red-team)  - [ ] presubmit  - [ ] submitted  - [ ] closed (lessons written)
 
 ## Contract (decision unit, valid answer, metric terms, constraints, bans, compute, runtime)
@@ -39,6 +39,14 @@ Full plan: `reports/eris_plan.md`. Summary:
 - Open reviewer questions logged in eris_plan.md: Q1 (general French web-pretrained encoder vs "model trained on them" ban), Q2 (hand-parsed deterministic features), Q3 (expected-utility decode using board's own counts).
 
 ## Plan (primary, fallback, rejected options, fixed work plan)
+(see Validation design section above for the plan summary.)
+
+## Validation harness (implemented)
+`validate.py` (importable: `build_folds`, `build_merged_bill_groups`, `filter_test_like`/`test_like_mask`, `score_cv`, `bootstrap_ci`, `nested_select`, `run_oracle_checks`, `random_shuffle_baseline`, `parse_division_type`, `n_bucket`) + `reports/split_audit.md`. Verified end-to-end (`python3 validate.py` reruns everything from train CSVs only): gold-fed-back scores exactly 100.0, random-shuffle baseline ~0.26 on test-like subset (near 0 as expected), fold assignment deterministic, no bill_id spans >1 fold.
+**Load-bearing fix the agent found**: the plan's literal "merge bills sharing >=3 identical texts" rule chains 72/209 bills into ONE group covering 85% of the data (driven by generic one-liners like "Supprimer cet article", 1553 occurrences) — unusable for 5-fold CV. Fixed with a length floor (>=40 normalized chars) before counting shared texts: gives 203 groups (6 real merge pairs, largest group 3 bills), stable for any floor in [40,100] chars, and the 6 survivors are genuine budget-cycle re-tabled text (300+ chars, cites specific code articles). Any future code touching bill-grouping must keep this floor.
+Fold balance: test-like items balanced to within 0.1% across 5 folds. CMP/deuxième lecture readings absent from test-like per-fold table — expected (bill-clustered + rarely have >=2 nonzero counts), not a bug.
+Bias direction: ~1-2pt optimism expected from in-script decode-constant selection (use `nested_select` to quantify) + stacking smoothing; net plan is private-LB ≈ test-like OOF minus ~1-2 points, use `bootstrap_ci` (bill-resampled, 1000 resamples) for the real interval on model OOF.
+solution.py must: call `build_folds` once, use `filter_test_like`/`test_like_mask` for stage-2 training population + headline reporting, call `score_cv` after assembling OOF, use `nested_select` for every decode-constant choice (tau, Sinkhorn on/off, pair weighting), call `bootstrap_ci` on final OOF for the reported CI.
 
 ## Experiment log (id, hypothesis, change, CV mean +- std, per-fold, runtime, kept?, notes)
 
