@@ -4,6 +4,18 @@
 Reads <public_dir> (train.csv, train_items.csv, train_targets.csv, test.csv, test_items.csv,
 sample_submission.csv), trains real models inside this script, writes <submission_out>.
 
+ENCODER CHOICE (updated from a real GPU run, see docstring deviations below): the plan's fallback
+encoder `almanach/camembert-base` (RoBERTa architecture) is used here, not the plan's named primary
+`almanach/camembertav2-base` (DeBERTa-v2 architecture) -- a real Kaggle-GPU run of the DeBERTa-v2
+primary OOM'd on the very first backward pass of fold 0 ("CUDA out of memory... 13.13 GiB already
+allocated" on a batch of 32 items at 320 tokens). DeBERTa-v2's disentangled (relative-position)
+attention materialises extra O(batch x heads x seq^2) score tensors per layer beyond standard
+attention, which is a real architectural cost, not a dev-environment artifact -- it would also have
+cost materially more wall-clock time on the target A10G even where it fits in memory. Switching to the
+plan's own named fallback (same family of model, lighter RoBERTa-style attention) is exactly the
+condition the plan itself names for this switch ("Use if profiling shows primary stage 1 > 25 min on
+A10G"); MAX_LEN was also cut 320->256 (quadratic attention saving) for the same reason.
+
 ARCHITECTURE (reports/eris_plan.md "Primary (A)"): per-item fine-tuned French encoder with 3 heads
 (5-way fate, "kill-power" cascade head, "has a joint partner" head) -> a pairwise LightGBM classifier
 for the `joint` partition -> an item-level LightGBM stacker for `fates` (fed the encoder's OOF outputs,
@@ -41,7 +53,7 @@ Challenge requirements map (the Prompt Compliance check reads the code against t
     kept boards' outputs unchanged) holds because every per-board computation only reads that board's
     own rows.
   * "do not use any external copy of these amendments... or any model trained on them": no external
-    data; HF weights are a general-purpose pretrained French encoder (`almanach/camembertav2-base`,
+    data; HF weights are a general-purpose pretrained French encoder (`almanach/camembert-base`,
     pinned revision), never a model fine-tuned on Assemblee Nationale outcome records; no AN website
     lookups anywhere in this file.
   * fixed work plan, no wall-clock branching (CLAUDE.md Sec3): SEED/N_FOLDS/EPOCHS/BATCH_SIZE/LightGBM
@@ -100,10 +112,10 @@ SEED = 42
 N_FOLDS = 5
 DEVICE = "cuda"  # CLAUDE.md default: assume one A10G; never branch on availability
 
-ENCODER_NAME = "almanach/camembertav2-base"
-ENCODER_REVISION = "54cc91d6ac45a540c7e0faeb677f4dd8201d3d61"
-MAX_LEN = 320
-DISPOSITIF_BUDGET = 160  # tokens; exposé fills the remainder of MAX_LEN
+ENCODER_NAME = "almanach/camembert-base"  # fallback encoder, promoted to primary -- see docstring deviations
+ENCODER_REVISION = "a75967561c78f2aa81cc41045378d3b4ee25af9e"
+MAX_LEN = 256
+DISPOSITIF_BUDGET = 128  # tokens; exposé fills the remainder of MAX_LEN
 EPOCHS = 2
 BATCH_SIZE = 32
 EVAL_BATCH_SIZE = 64
