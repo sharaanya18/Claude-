@@ -1,7 +1,7 @@
 # Challenge notes: assembly_amendments
 
 ## Status
-- [x] contract  - [x] data audit  - [ ] strategist plan  - [ ] validation  - [ ] baseline  - [ ] experiments
+- [x] contract  - [x] data audit  - [x] strategist plan  - [ ] validation  - [ ] baseline  - [ ] experiments
 - [ ] review (compliance, runtime, red-team)  - [ ] presubmit  - [ ] submitted  - [ ] closed (lessons written)
 
 ## Contract (decision unit, valid answer, metric terms, constraints, bans, compute, runtime)
@@ -28,6 +28,15 @@ Full report: `reports/data_audit.md`. Key points:
 - Dispositif length p99~850 words, max 14444 — fixed truncation (512-768 tokens) will cut tail; add log-length as feature.
 
 ## Validation design (mirror of the hidden split, groups, bias direction of the proxy)
+Full plan: `reports/eris_plan.md`. Summary:
+- Primary approach: fine-tuned French encoder (almanach/camembertav2-base, pinned revision) with 3 heads (fate, kill-power, grouped) -> pair LightGBM for `joint` -> item LightGBM stacker for `fates` (cascade/noisy-OR features) -> exact linear-assignment decode for fates (Bayes-optimal given counts-fixed chance baselines) -> average-linkage clustering decode for joint (OOF-selected cut tau). Fallback: smaller camembert-base if primary stage-1 profiles >25min.
+- 5 bill-grouped size-aware folds (bills also merged when sharing >=3 identical edits per the dossier rule). Headline CV = metric.py score on the "test-like" subset (n in [4,80], >=2 nonzero counts; 1652 boards/144 bills) — raw train is ~27x inflated per metric_spec, never compare directly.
+- Decode uses only each board's own `counts` (a given input column) — not test-set fitting; verified compliant (contract Q3).
+- Cascade mechanic (deletion/rewrite-adopted -> 97% others fall) must be LEARNED (kill-power head + noisy-OR features), never hardcoded.
+- Rejected: end-to-end set-transformer as primary (roadmap step 5 only), pairwise cross-encoder for joint (10x cost), large encoders (runtime), GBDT-only no-encoder (grey/lower ceiling, dev yardstick only), hardcoded cascade/Jaccard rules, counts fed into encoder (reserved ablation).
+- Runtime estimate: ~28-34 min primary / ~18-22 min fallback on A10G vs 60min ceiling.
+- Expected test-like OOF range 38-52 (non-trained yardstick = 18.8, counts-respecting random ~1.1). Estimates only, not measured (no GPU in dev sandbox).
+- Open reviewer questions logged in eris_plan.md: Q1 (general French web-pretrained encoder vs "model trained on them" ban), Q2 (hand-parsed deterministic features), Q3 (expected-utility decode using board's own counts).
 
 ## Plan (primary, fallback, rejected options, fixed work plan)
 
